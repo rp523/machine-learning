@@ -327,12 +327,21 @@ class CAdaBoost:
         plt.ylabel("True Positive Rate")
         plt.show()
     
+        plt.plot(np.log(x),np.log(1-y),'.' )
+#        plt.xlim(0.0, 1.0)
+#        plt.ylim(0.0, 1.0)
+        plt.title("DET Curve")
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("false Negative Rate")
+        plt.show()
+
     def DrawStrong(self):
         strong = np.array(sio.loadmat("strong.mat")["strong"])
         for d in self.__detectorList:   #今はリスト使ってないので１こだけ
             img = self.__imgList[5]
             imt.ndarray2PILimg(img).resize((400,800)).show()
             d.ShowBinImg(shape=(800,400), strong=strong, img=img)
+            d.ShowBinImg(shape=(800,400), img=img)
     
 if "__main__" == __name__:
 
@@ -341,15 +350,15 @@ if "__main__" == __name__:
     Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
     Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
     Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
-    detectorList = [Hog8_4_8]
+    detectorList = [Hog8_8_16]
     
     trainImgList = []
     trainLabelList = []
 
-    for imgPath in fio.GetFileList("TrainPosSub"):
+    for imgPath in fio.GetFileList("TrainPos"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(1)
-    for imgPath in fio.GetFileList("TrainNegSub"):
+    for imgPath in fio.GetFileList("TrainNeg"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
     AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=2000)
@@ -357,16 +366,16 @@ if "__main__" == __name__:
     testImgList = []
     testLabelList = []
 
-    for imgPath in fio.GetFileList("TestPosSub"):
+    for imgPath in fio.GetFileList("TestPos"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(1)
-    for imgPath in fio.GetFileList("TestNegSub"):
+    for imgPath in fio.GetFileList("TestNeg"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(-1)
-    AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
+    #AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
     
-    AdaBoost.DrawStrong()
-    #AdaBoost.DrawROC()
+    #AdaBoost.DrawStrong()
+    AdaBoost.DrawROC()
     
     print("Done.")
     exit()
