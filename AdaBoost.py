@@ -8,6 +8,17 @@ import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 
+class VoteCount:
+    # 内積を使えばメモリ確保量はもっと減らせる気がする…
+    def __init__(self,binNum,detectorNum,sampleNum):
+        self.__filter = np.zeros((binNum,detectorNum,sampleNum))
+        for b in range(binNum):
+            self.__filter[b] = np.array([[b]*sampleNum]*detectorNum)
+    def calc(self,bins,weight):
+        return np.transpose(np.sum((self.__filter == bins) * weight, axis=2))
+    def reduceDetector(self,detector):
+        self.__filter = np.delete(self.__filter, detector, axis=1)
+
 class CAdaBoost:
     def __init__(self,inImgList,inLabelList,inDetectorList,loopNum):
         self.__bin = 8
@@ -99,18 +110,19 @@ class CAdaBoost:
         negSampleWeight = np.array([1.0/(negSample)]*negSample)
         
         #ヒストグラム算出用のフィルタテンソルを作成
-        posBinFilter = np.empty((0,detectorNum,posSample),int)
-        negBinFilter = np.empty((0,detectorNum,negSample),int)
-        for b in range(self.__bin):
-            posBinFilter = np.append(posBinFilter, [np.array([[b]*posSample]*detectorNum)], axis=0)
-            negBinFilter = np.append(negBinFilter, [np.array([[b]*negSample]*detectorNum)], axis=0)
+        posBinCounter = VoteCount(binNum=self.__bin,
+                                  detectorNum=detectorNum,
+                                  sampleNum=posSample)
+        negBinCounter = VoteCount(binNum=self.__bin,
+                                  detectorNum=detectorNum,
+                                  sampleNum=negSample)
         
         # スコアをBIN値に換算
-        trainPosScore = (trainPosScore * self.__bin).astype(np.int64)
-        trainNegScore = (trainNegScore * self.__bin).astype(np.int64)   
+        trainPosBin = (trainPosScore * self.__bin).astype(np.int64)
+        trainNegBin = (trainNegScore * self.__bin).astype(np.int64)   
         # 万が一値がBIN値と同じ場合はBIN-1としてカウントする
-        trainPosScore -= 1*(trainPosScore == self.__bin)    
-        trainNegScore -= 1*(trainNegScore == self.__bin)    
+        trainPosBin -= 1*(trainPosBin == self.__bin)    
+        trainNegBin -= 1*(trainNegBin == self.__bin)    
 
         # 強識別器情報の記録メモリを確保
         detLen = min(self.__loopNum,detectorNum)
@@ -127,11 +139,11 @@ class CAdaBoost:
             #        elif (-1 == self.__labelList[i]):
             #            histoNeg[d][bin] = histoNeg[d][bin] + sampleWeight[i]
             
-            histoPos = np.transpose(np.sum((posBinFilter == trainPosScore) * posSampleWeight, axis=2))
+            histoPos = posBinCounter.calc(trainPosBin, posSampleWeight)
             if np.any(np.isnan(histoPos)):
                 print("histoPos has NAN when created.")
                 exit()
-            histoNeg = np.transpose(np.sum((negBinFilter == trainNegScore) * negSampleWeight, axis=2))
+            histoNeg = negBinCounter.calc(trainNegBin, negSampleWeight)
             if np.any(np.isnan(histoNeg)):
                 print("histoNeg has NAN when created.")
                 exit()
@@ -191,17 +203,17 @@ class CAdaBoost:
             #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
             reliability = self.Reliability(h)
             # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
-            posMax = np.max(-1.0 * reliability.calc(bin=trainPosScore[bestDet]))
-            negMax = np.max( 1.0 * reliability.calc(bin=trainNegScore[bestDet]))
+            posMax = np.max(-1.0 * reliability.calc(bin=trainPosBin[bestDet]))
+            negMax = np.max( 1.0 * reliability.calc(bin=trainNegBin[bestDet]))
             if 0.0 == np.sum(posSampleWeight):
                 print("positive sample regularize failed.")
                 exit()
-            posSampleWeight *= np.exp(-1.0 * reliability.calc(bin=trainPosScore[bestDet]) - posMax)
+            posSampleWeight *= np.exp(-1.0 * reliability.calc(bin=trainPosBin[bestDet]) - posMax)
             posSampleWeight /= np.sum(posSampleWeight)
             if np.any(np.isnan(posSampleWeight)):
                 print("posSampleWeight has NAN.")
                 exit()
-            negSampleWeight *= np.exp( 1.0 * reliability.calc(bin=trainNegScore[bestDet]) - negMax)
+            negSampleWeight *= np.exp( 1.0 * reliability.calc(bin=trainNegBin[bestDet]) - negMax)
             if 0.0 == np.sum(negSampleWeight):
                 print("negative sample regularize failed.")
                 exit()
@@ -211,12 +223,12 @@ class CAdaBoost:
                 exit()
             
             # 選択除去された弱識別器の情報を次ループでは考えない
-            trainPosScore = np.delete(trainPosScore, bestDet, axis=0)
-            trainNegScore = np.delete(trainNegScore, bestDet, axis=0)
+            trainPosBin = np.delete(trainPosBin, bestDet, axis=0)
+            trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
             posSample -= 1
             negSample -= 1
-            posBinFilter = np.delete(posBinFilter, bestDet, axis=1)
-            negBinFilter = np.delete(negBinFilter, bestDet, axis=1)
+            posBinCounter.reduceDetector(bestDet)
+            negBinCounter.reduceDetector(bestDet)
 
             if (0 == (w + 1) % 100) or (w + 1 == detLen):
                 print("boosting weak detector:", w + 1)
