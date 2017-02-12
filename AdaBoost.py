@@ -330,9 +330,9 @@ class CAdaBoost:
     def DrawStrong(self):
         strong = np.array(sio.loadmat("strong.mat")["strong"])
         for d in self.__detectorList:   #今はリスト使ってないので１こだけ
-            img = self.__imgList[0]
+            img = self.__imgList[5]
             imt.ndarray2PILimg(img).resize((400,800)).show()
-            d.ShowBinImg(shape=(800,400), img=img)#strong=strong, )
+            d.ShowBinImg(shape=(800,400), strong=strong, img=img)
     
 if "__main__" == __name__:
 

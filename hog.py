@@ -176,7 +176,17 @@ class CHog:
         if None != img:
             self.calc(img)
         
-        map = np.zeros((shape[0],shape[1],3))
+        backGroundColor = 0
+        if None != strong:
+            backGroundColor = 255
+
+        map = np.array( [
+                            [
+                                [backGroundColor]*3
+                            ]*shape[1]
+                        ]*shape[0]
+                       )
+ 
         whiteColor = np.array((255,255,255))
         
         # グリッド線を引く
@@ -187,7 +197,17 @@ class CHog:
         unitCellY = height / self.__hogParam.cellY
         unitCellX = width / self.__hogParam.cellX
         radius = min(unitCellX,unitCellY)/2 - 1
-        boldMax = int(radius/5)
+        boldMax = int(radius/8)
+
+        if None != strong:
+            colMax = -100.0
+            for y in range(0,self.__hogParam.cellY):
+                for x in range(0,self.__hogParam.cellX):
+                    for b in range(0,self.__hogParam.bin):
+                        d = self.__hogParam.bin * ( self.__hogParam.cellX * y + x ) + b
+                        colMax = max(colMax, np.max(np.max(strong[d]), -1.0*np.min(strong[d])))
+            if 0.0 == colMax:
+                colMax = 1.0
 
         for y in range(0,self.__hogParam.cellY):
             centerY = (y+0.5)*unitCellY
@@ -209,11 +229,14 @@ class CHog:
                         bold = 1
                     else:
                         d = self.__hogParam.bin * ( self.__hogParam.cellX * y + x ) + b
-                        red = green = blue = 0
+                        # pos/negへの貢献度によって色を変える
+                        red = green = blue = backGroundColor
                         if 0 < strong[d][b]:
-                            red = mt.IntMinMax(255.0*strong[d][b],0,255)
+                            red = 255
+                            blue = green = mt.IntMinMax(255.0*strong[d][b]/colMax,0,255)
                         else:
-                            blue = mt.IntMinMax(-255.0*strong[d][b],0,255)
+                            blue = 255
+                            green = red = mt.IntMinMax(-255.0*strong[d][b]/colMax,0,255)
                         colorVal = (red,green,blue) 
                         
                         bold = int(self.__binMap[y,x,b] / self.__normMap[sCellY,sCellX] * boldMax)
