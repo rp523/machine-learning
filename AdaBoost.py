@@ -7,6 +7,7 @@ import fileIO as fio
 import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
+from PIL import Image
 
 # for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
@@ -281,15 +282,13 @@ class CAdaBoost:
         else:
             self.__testScoreMat = np.asarray(sio.loadmat("TestScore.mat")["testScore"])
         
-        print(len(inImgList))
-        print(self.__testScoreMat.shape)
         finalScore = np.zeros(len(inImgList))
         for d in range(strongDetectorID.size):
             selectedDetectorID = strongDetectorID[d]
             for i in range(len(inImgList)):
                 score = self.__testScoreMat[selectedDetectorID][i]
-                b = mt.IntMinMax(score * self.__bin, 0, self.__bin - 1)
-                finalScore[i] = finalScore[i] + strongDetector[d][b]
+                b = mt.IntMax(score * self.__bin, self.__bin - 1)
+                finalScore[i] += strongDetector[d][b]
         outDict = {}
         outDict["finalScore"] = np.asarray(finalScore)
         outDict["label"] = np.asarray(inLabelList)
@@ -304,29 +303,12 @@ class CAdaBoost:
         for i in range(finalScore.size):
             
             # バイアスがfinalScore[i]だったときのROCカーブ上の点を算出
-            falseNeg = 0.0
-            truePos = 0.0
-            falsePos = 0.0
-            trueNeg = 0.0
             bias = finalScore[i]
             
-            for j in range(finalScore.size):
-                if i != j:
-                    if 1 == label[j]:
-                        # 本当はポジティブ
-                        if finalScore[j] > bias:
-                            truePos = truePos + 1.0   # ポジティブ判定→正解
-                        elif finalScore[j] < bias:
-                            falseNeg = falseNeg + 1.0 # ネガティブ判定→不正解
-                    elif -1 == label[j]:
-                        # 本当はネガティブ
-                        if finalScore[j] > bias:
-                            falsePos = falsePos + 1.0 # ポジティブ判定→不正解
-                        elif finalScore[j] < bias:
-                            trueNeg = trueNeg + 1.0   # ネガティブ判定→正解
-                    else:
-                        print("Abort! label value =",label[j])
-                        exit()
+            truePos  = np.sum(np.logical_and(( 1 == label), (finalScore[i] < finalScore)))
+            falseNeg = np.sum(np.logical_and(( 1 == label), (finalScore[i] > finalScore)))
+            falsePos = np.sum(np.logical_and((-1 == label), (finalScore[i] < finalScore)))
+            trueNeg  = np.sum(np.logical_and((-1 == label), (finalScore[i] > finalScore)))
             if 0.0 < truePos + falseNeg:
                 falseNeg = falseNeg / (truePos + falseNeg)
                 truePos  = truePos  / (truePos + falseNeg)
@@ -345,7 +327,12 @@ class CAdaBoost:
         plt.ylabel("True Positive Rate")
         plt.show()
     
-        
+    def DrawStrong(self):
+        strong = np.array(sio.loadmat("strong.mat")["strong"])
+        for d in self.__detectorList:   #今はリスト使ってないので１こだけ
+            img = self.__imgList[0]
+            imt.ndarray2PILimg(img).resize((400,800)).show()
+            d.ShowBinImg(shape=(800,400), img=img)#strong=strong, )
     
 if "__main__" == __name__:
 
@@ -377,7 +364,9 @@ if "__main__" == __name__:
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(-1)
     AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
-    AdaBoost.DrawROC()
+    
+    AdaBoost.DrawStrong()
+    #AdaBoost.DrawROC()
     
     print("Done.")
     exit()

@@ -171,9 +171,13 @@ class CHog:
                self.__hogParam.blockX *                                 \
                self.__hogParam.bin
     
-    def ShowBinImg(self, shape):
-        grayMap = np.zeros(shape)
-        whiteColor = 255
+    def ShowBinImg(self, shape, strong=None, img=None):
+        
+        if None != img:
+            self.calc(img)
+        
+        map = np.zeros((shape[0],shape[1],3))
+        whiteColor = np.array((255,255,255))
         
         # グリッド線を引く
         # dr.DrawGrid(grayMap, (self.__hogParam.cellX,self.__hogParam.cellY), 50)
@@ -183,6 +187,7 @@ class CHog:
         unitCellY = height / self.__hogParam.cellY
         unitCellX = width / self.__hogParam.cellX
         radius = min(unitCellX,unitCellY)/2 - 1
+        boldMax = int(radius/5)
 
         for y in range(0,self.__hogParam.cellY):
             centerY = (y+0.5)*unitCellY
@@ -193,23 +198,40 @@ class CHog:
                 sCellX = int(x/unitCellX)
 
                 for b in range(0,self.__hogParam.bin):
-                    colorVal = (self.__binMap[y,x,b] / self.__normMap[sCellY,sCellX]) * whiteColor
                     theta = (self.__binUnit * b) + (0.5 * np.pi)
                     sy = mt.IntMinMax( centerY + (radius * np.sin(theta)), 0, height-1 )
                     sx = mt.IntMinMax( centerX + (radius * np.cos(theta)), 0, width-1 )
                     ey = mt.IntMinMax( centerY - (radius * np.sin(theta)), 0, height-1 )
                     ex = mt.IntMinMax( centerX - (radius * np.cos(theta)), 0, width-1 )
-                    imt.DrawLine(grayMap, (sy,sx), (ey,ex), colorVal)
+                    
+                    if None == strong:
+                        colorVal = (self.__binMap[y,x,b] / self.__normMap[sCellY,sCellX]) * whiteColor
+                        bold = 1
+                    else:
+                        d = self.__hogParam.bin * ( self.__hogParam.cellX * y + x ) + b
+                        red = green = blue = 0
+                        if 0 < strong[d][b]:
+                            red = mt.IntMinMax(255.0*strong[d][b],0,255)
+                        else:
+                            blue = mt.IntMinMax(-255.0*strong[d][b],0,255)
+                        colorVal = (red,green,blue) 
+                        
+                        bold = int(self.__binMap[y,x,b] / self.__normMap[sCellY,sCellX] * boldMax)
+                    imt.DrawBoldLine(map, (sy,sx), (ey,ex), colorVal,bold)
+                    #imt.DrawLine(grayMap, (sy,sx), (ey,ex), colorVal)
 
-        img = imt.ndarray2PILimg(grayMap)
+        img = imt.ndarray2PILimg(map)
         img.show()
+
+        
+        
         
 if __name__ == "__main__":
     
     img = imt.OpenAsGrayImg("TrainPos/person_and_bike_013e.bmp")
     img.show()
     imgArray = np.asarray(img)
-    Hog = CHog(CHogParam(bin=8,cellX=8,cellY=16,blockX=1,blockY=1))
+    Hog = CHog(CHogParam(bin=8,cellX=4,cellY=8,blockX=1,blockY=1))
     Hog.calc(imgArray)
     Hog.ShowBinImg((800,400))
     
