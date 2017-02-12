@@ -180,8 +180,8 @@ class CHog:
         
         height = shape[0]
         width  = shape[1]
-        unitCellY = width  / self.__hogParam.cellY
-        unitCellX = height / self.__hogParam.cellX
+        unitCellY = height / self.__hogParam.cellY
+        unitCellX = width / self.__hogParam.cellX
         radius = min(unitCellX,unitCellY)/2 - 1
 
         for y in range(0,self.__hogParam.cellY):
@@ -209,8 +209,7 @@ if __name__ == "__main__":
     img = imt.OpenAsGrayImg("TrainPos/person_and_bike_013e.bmp")
     img.show()
     imgArray = np.asarray(img)
-    hp = CHogParam(bin=8,cellX=8,cellY=16,blockX=1,blockY=1)
-    Hog = CHog(hp)
+    Hog = CHog(CHogParam(bin=8,cellX=8,cellY=16,blockX=1,blockY=1))
     Hog.calc(imgArray)
-    Hog.ShowBinImg((400,200))
+    Hog.ShowBinImg((800,400))
     
