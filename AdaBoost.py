@@ -8,16 +8,18 @@ import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 
+# for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
-    # 内積を使えばメモリ確保量はもっと減らせる気がする…
     def __init__(self,binNum,detectorNum,sampleNum):
         self.__filter = np.zeros((binNum,detectorNum,sampleNum))
         for b in range(binNum):
             self.__filter[b] = np.array([[b]*sampleNum]*detectorNum)
+    # 入力ベクトルにおける各BIN値への投票数を重み付きでカウントする
     def calc(self,bins,weight):
         return np.transpose(np.sum((self.__filter == bins) * weight, axis=2))
-    def reduceDetector(self,detector):
-        self.__filter = np.delete(self.__filter, detector, axis=1)
+    # 弱識別器の次元を１つ減らす
+    def reduceDetector(self):
+        self.__filter = np.delete(self.__filter, 0, axis=1) # 減らす列の位置はどこでもいい
 
 class CAdaBoost:
     def __init__(self,inImgList,inLabelList,inDetectorList,loopNum):
@@ -227,8 +229,8 @@ class CAdaBoost:
             trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
             posSample -= 1
             negSample -= 1
-            posBinCounter.reduceDetector(bestDet)
-            negBinCounter.reduceDetector(bestDet)
+            posBinCounter.reduceDetector()
+            negBinCounter.reduceDetector()
 
             if (0 == (w + 1) % 100) or (w + 1 == detLen):
                 print("boosting weak detector:", w + 1)
