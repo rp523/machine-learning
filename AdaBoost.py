@@ -8,6 +8,7 @@ import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
+from sympy.core.tests.test_assumptions import test_neg_symbol_falsepositive
 
 # for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
@@ -300,6 +301,8 @@ class CAdaBoost:
 
         x = np.empty(0,float)
         y = np.empty(0,float)
+        
+        accuracy = 0.0
         for i in range(finalScore.size):
             
             # バイアスがfinalScore[i]だったときのROCカーブ上の点を算出
@@ -309,6 +312,11 @@ class CAdaBoost:
             falseNeg = np.sum(np.logical_and(( 1 == label), (finalScore[i] > finalScore)))
             falsePos = np.sum(np.logical_and((-1 == label), (finalScore[i] < finalScore)))
             trueNeg  = np.sum(np.logical_and((-1 == label), (finalScore[i] > finalScore)))
+
+            accuracy = max(accuracy,
+                           (truePos + trueNeg) / \
+                           (truePos + trueNeg + falsePos + falseNeg))
+            
             if 0.0 < truePos + falseNeg:
                 falseNeg = falseNeg / (truePos + falseNeg)
                 truePos  = truePos  / (truePos + falseNeg)
@@ -322,10 +330,11 @@ class CAdaBoost:
         plt.plot(x,y,'.' )
         plt.xlim(0.0, 1.0)
         plt.ylim(0.0, 1.0)
-        plt.title("ROC Curve")
+        plt.title("ROC Curve: accuracy=" + str(accuracy))
         plt.xlabel("False Positive Rate")
         plt.ylabel("True Positive Rate")
         plt.show()
+        return
     
         plt.plot(np.log(x),np.log(1-y),'.' )
 #        plt.xlim(0.0, 1.0)
@@ -350,15 +359,15 @@ if "__main__" == __name__:
     Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
     Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
     Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
-    detectorList = [Hog8_8_16]
+    detectorList = [Hog8_4_8]
     
     trainImgList = []
     trainLabelList = []
 
-    for imgPath in fio.GetFileList("TrainPos"):
+    for imgPath in fio.GetFileList("TrainPosSub"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(1)
-    for imgPath in fio.GetFileList("TrainNeg"):
+    for imgPath in fio.GetFileList("TrainNegSub"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
     AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=2000)
@@ -366,16 +375,16 @@ if "__main__" == __name__:
     testImgList = []
     testLabelList = []
 
-    for imgPath in fio.GetFileList("TestPos"):
+    for imgPath in fio.GetFileList("TestPosSub"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(1)
-    for imgPath in fio.GetFileList("TestNeg"):
+    for imgPath in fio.GetFileList("TestNegSub"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(-1)
-    #AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
+    AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
     
-    #AdaBoost.DrawStrong()
     AdaBoost.DrawROC()
+    #AdaBoost.DrawStrong()
     
     print("Done.")
     exit()

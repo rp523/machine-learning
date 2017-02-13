@@ -47,7 +47,7 @@ def ZeroPadding(srcMap,pad):
 
     return np.array(retList)
 
-class CHogParam:
+class CHogParam():
     def __init__(self, bin=None,
                        cellX = None,
                        cellY = None,
