@@ -52,7 +52,11 @@ class CHogParam():
                        cellX = None,
                        cellY = None,
                        blockX = None,
-                       blockY = None):
+                       blockY = None,
+                       jointAND = None,
+                       jointOR = None,
+                       jointXOR = None,
+                       ):
         if None != bin:
             self.bin = bin
         else:
@@ -78,6 +82,20 @@ class CHogParam():
         else:
             self.blockY = 1
         
+        if None != jointAND:
+            self.jointAND = jointAND
+        else:
+            self.jointAND = False
+        
+        if None != jointOR:
+            self.jointOR = jointOR
+        else:
+            self.jointOR = False
+        
+        if None != jointXOR:
+            self.jointXOR = jointXOR
+        else:
+            self.jointXOR = False
 
 
 class CHog:
@@ -138,6 +156,33 @@ class CHog:
                 
         self.__Normalize()
         
+        noJointLen = self.__feature.size
+        if False != self.__hogParam.jointAND:
+            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
+            n = 0
+            for i in range(noJointLen):
+                for j in range(i + 1, noJointLen):
+                    featureNew[n] = min(self.__feature[i], self.__feature[j])
+                    n += 1
+            self.__feature = np.array(list(self.__feature) + list(featureNew))
+        if False != self.__hogParam.jointOR:
+            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
+            n = 0
+            for i in range(noJointLen):
+                for j in range(i + 1, noJointLen):
+                    featureNew[n] = max(self.__feature[i], self.__feature[j])
+                    n += 1
+            self.__feature = np.array(list(self.__feature) + list(featureNew))
+        if False != self.__hogParam.jointXOR:
+            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
+            n = 0
+            for i in range(noJointLen):
+                for j in range(i + 1, noJointLen):
+                    featureNew[n] = max(self.__feature[i], self.__feature[j])   \
+                                  - min(self.__feature[i], self.__feature[j])
+                    n += 1
+            self.__feature = np.array(list(self.__feature) + list(featureNew))
+
         return self.__feature
 
     def __Normalize(self):
@@ -165,11 +210,19 @@ class CHog:
                             self.__feature = np.append(self.__feature, normalizedFeature )
                             
     def GetFeatureLength(self):
-        return ( self.__hogParam.cellY - self.__hogParam.blockY + 1 ) * \
+        noJoint =  ( self.__hogParam.cellY - self.__hogParam.blockY + 1 ) * \
                ( self.__hogParam.cellX - self.__hogParam.blockX + 1 ) * \
                self.__hogParam.blockY *                                 \
                self.__hogParam.blockX *                                 \
                self.__hogParam.bin
+        ret = noJoint
+        if False != self.__hogParam.jointAND:
+            ret += int(noJoint * (noJoint - 1) / 2)
+        if False != self.__hogParam.jointOR:
+            ret += int(noJoint * (noJoint - 1) / 2)
+        if False != self.__hogParam.jointXOR:
+            ret += int(noJoint * (noJoint - 1) / 2)
+        return ret
     
     def ShowBinImg(self, shape, strong=None, img=None):
         

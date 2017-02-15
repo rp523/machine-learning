@@ -8,7 +8,6 @@ import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
-from sympy.core.tests.test_assumptions import test_neg_symbol_falsepositive
 
 # for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
@@ -100,6 +99,7 @@ class CAdaBoost:
             return
         
         detectorNum = self.__trainScoreMat.shape[0]
+        print("feature dim :", detectorNum)
         if 0 == self.__trainScoreMat.shape[1]:
             print("Abort! NO sample found.")
             exit()
@@ -355,7 +355,7 @@ class CAdaBoost:
 if "__main__" == __name__:
 
     Hog8_8_16 = CHog(CHogParam(bin=8, cellX=8,cellY=16,blockX=1,blockY=1))
-    Hog8_4_8 = CHog(CHogParam(bin=8, cellX=4,cellY=8,blockX=1,blockY=1))
+    Hog8_4_8 = CHog(CHogParam(bin=8, cellX=4,cellY=8,blockX=1,blockY=1,jointXOR=True,jointAND=True,jointOR=True))
     Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
     Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
     Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
@@ -370,7 +370,7 @@ if "__main__" == __name__:
     for imgPath in fio.GetFileList("TrainNegSub"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
-    AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=2000)
+    AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=1000)
     
     testImgList = []
     testLabelList = []
