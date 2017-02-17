@@ -58,7 +58,6 @@ class CAdaBoost:
                 if (0 == logCnt % 100) or (len(self.__imgList) == logCnt):
                     print(logCnt,"/",len(self.__imgList),"file was prepared for training.")
     
-            self.__trainScoreMat = np.transpose(self.__trainScoreMat)
             sio.savemat("test.mat", {"ability":self.__trainScoreMat} )
 
         else:
@@ -98,6 +97,10 @@ class CAdaBoost:
         if os.path.exists("strong.mat"):
             return
         
+        # ブースティングでは識別器ごとの性能を比較するので、
+        # 識別器IDが浅い階層に来るよう転置をとる
+        self.__trainScoreMat = np.transpose(self.__trainScoreMat)
+
         detectorNum = self.__trainScoreMat.shape[0]
         print("feature dim :", detectorNum)
         if 0 == self.__trainScoreMat.shape[1]:
@@ -278,11 +281,13 @@ class CAdaBoost:
                 if (0 == logCnt % 100) or (len(inImgList) == logCnt):
                     print(logCnt,"/",len(inImgList),"file was prepared for test.")
     
-            self.__testScoreMat = np.transpose(self.__testScoreMat)
             sio.savemat("TestScore.mat", {"testScore":self.__testScoreMat} )
         else:
             self.__testScoreMat = np.asarray(sio.loadmat("TestScore.mat")["testScore"])
-        
+
+        # AdaBoostではまず転置をとる
+        self.__testScoreMat = np.transpose(self.__testScoreMat)
+
         finalScore = np.zeros(len(inImgList))
         for d in range(strongDetectorID.size):
             selectedDetectorID = strongDetectorID[d]
@@ -355,11 +360,12 @@ class CAdaBoost:
 if "__main__" == __name__:
 
     Hog8_8_16 = CHog(CHogParam(bin=8, cellX=8,cellY=16,blockX=1,blockY=1))
-    Hog8_4_8 = CHog(CHogParam(bin=8, cellX=4,cellY=8,blockX=1,blockY=1,jointXOR=True,jointAND=True,jointOR=True))
+    Hog8_4_8 = CHog(CHogParam(bin=8, cellX=4,cellY=8,blockX=1,blockY=1,jointXOR=False,jointAND=False,jointOR=False))
+    Hog8_2_4 = CHog(CHogParam(bin=8, cellX=2,cellY=4,blockX=1,blockY=1,jointXOR=False,jointAND=False,jointOR=False))
     Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
     Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
     Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
-    detectorList = [Hog8_4_8]
+    detectorList = [Hog8_2_4]
     
     trainImgList = []
     trainLabelList = []
@@ -370,7 +376,7 @@ if "__main__" == __name__:
     for imgPath in fio.GetFileList("TrainNegSub"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
-    AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=1000)
+    AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=256)
     
     testImgList = []
     testLabelList = []

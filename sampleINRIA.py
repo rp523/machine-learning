@@ -132,7 +132,7 @@ def MakeMat(inTrainPos,inTrainNeg,inTestPos,inTestNeg):
     sio.savemat("INRIAPerson.mat",dict)
 
 if '__main__' == __name__:
-    ExtractSub(0.1)
+    ExtractSub(0.05)
     exit()
     NormalizeINRIA()
     exit()
