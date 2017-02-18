@@ -8,6 +8,7 @@ import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
+import gui
 
 # for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
@@ -43,7 +44,7 @@ class CAdaBoost:
     # AdaBoostのループにおいて、この行列は最初に一度だけ計算する
     def __Prepare(self):
         
-        if not os.path.exists("test.mat"):
+        if not os.path.exists("Train.mat"):
             self.__trainScoreMat = np.empty((0,self.__GetFeatureLength()),float)
     
             logCnt = 0;
@@ -58,10 +59,13 @@ class CAdaBoost:
                 if (0 == logCnt % 100) or (len(self.__imgList) == logCnt):
                     print(logCnt,"/",len(self.__imgList),"file was prepared for training.")
     
-            sio.savemat("test.mat", {"ability":self.__trainScoreMat} )
+            dict = {}
+            dict["trainScore"] = self.__trainScoreMat
+            dict["trainLabel"] = self.__labelList
+            sio.savemat("Train.mat", dict)
 
         else:
-            self.__trainScoreMat = np.asarray(sio.loadmat("test.mat")["ability"])
+            self.__trainScoreMat = np.asarray(sio.loadmat("Train.mat")["trainScore"])
 
     def __GetFeatureLength(self):
         if None == self.__featureLen:
@@ -267,7 +271,7 @@ class CAdaBoost:
 
         # 評価用サンプルに対する各弱識別器のスコアを算出
         
-        if not os.path.exists("TestScore.mat"):
+        if not os.path.exists("Test.mat"):
             logCnt = 0;
             self.__testScoreMat = np.empty((0,self.__GetFeatureLength()),float)
             for img in inImgList:
@@ -281,9 +285,12 @@ class CAdaBoost:
                 if (0 == logCnt % 100) or (len(inImgList) == logCnt):
                     print(logCnt,"/",len(inImgList),"file was prepared for test.")
     
-            sio.savemat("TestScore.mat", {"testScore":self.__testScoreMat} )
+            dict = {}
+            dict["testScore"] = self.__testScoreMat
+            dict["testLabel"] = np.array(inLabelList)
+            sio.savemat("Test.mat", dict)
         else:
-            self.__testScoreMat = np.asarray(sio.loadmat("TestScore.mat")["testScore"])
+            self.__testScoreMat = np.asarray(sio.loadmat("Test.mat")["testScore"])
 
         # AdaBoostではまず転置をとる
         self.__testScoreMat = np.transpose(self.__testScoreMat)
@@ -300,54 +307,6 @@ class CAdaBoost:
         outDict["label"] = np.asarray(inLabelList)
         sio.savemat("FinalScore.mat", outDict)
         
-    def DrawROC(self):
-        finalScore = np.asarray(sio.loadmat("FinalScore.mat")["finalScore"])[0]
-        label = np.asarray(sio.loadmat("FinalScore.mat")["label"])[0]
-
-        x = np.empty(0,float)
-        y = np.empty(0,float)
-        
-        accuracy = 0.0
-        for i in range(finalScore.size):
-            
-            # バイアスがfinalScore[i]だったときのROCカーブ上の点を算出
-            bias = finalScore[i]
-            
-            truePos  = np.sum(np.logical_and(( 1 == label), (finalScore[i] < finalScore)))
-            falseNeg = np.sum(np.logical_and(( 1 == label), (finalScore[i] > finalScore)))
-            falsePos = np.sum(np.logical_and((-1 == label), (finalScore[i] < finalScore)))
-            trueNeg  = np.sum(np.logical_and((-1 == label), (finalScore[i] > finalScore)))
-
-            accuracy = max(accuracy,
-                           (truePos + trueNeg) / \
-                           (truePos + trueNeg + falsePos + falseNeg))
-            
-            if 0.0 < truePos + falseNeg:
-                falseNeg = falseNeg / (truePos + falseNeg)
-                truePos  = truePos  / (truePos + falseNeg)
-            if 0.0 < trueNeg + falsePos:
-                falsePos = falsePos / (trueNeg + falsePos)
-                trueNeg  =  trueNeg / (trueNeg + falsePos)
-            
-            x = np.append(x, falsePos)        
-            y = np.append(y,  truePos)
-        
-        plt.plot(x,y,'.' )
-        plt.xlim(0.0, 1.0)
-        plt.ylim(0.0, 1.0)
-        plt.title("ROC Curve: accuracy=" + str(accuracy))
-        plt.xlabel("False Positive Rate")
-        plt.ylabel("True Positive Rate")
-        plt.show()
-        return
-    
-        plt.plot(np.log(x),np.log(1-y),'.' )
-#        plt.xlim(0.0, 1.0)
-#        plt.ylim(0.0, 1.0)
-        plt.title("DET Curve")
-        plt.xlabel("False Positive Rate")
-        plt.ylabel("false Negative Rate")
-        plt.show()
 
     def DrawStrong(self):
         strong = np.array(sio.loadmat("strong.mat")["strong"])
@@ -365,15 +324,15 @@ if "__main__" == __name__:
     Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
     Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
     Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
-    detectorList = [Hog8_2_4]
+    detectorList = [Hog8_4_8]
     
     trainImgList = []
     trainLabelList = []
 
-    for imgPath in fio.GetFileList("TrainPosSub"):
+    for imgPath in fio.GetFileList("TrainPos"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(1)
-    for imgPath in fio.GetFileList("TrainNegSub"):
+    for imgPath in fio.GetFileList("TrainNeg"):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
     AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=256)
@@ -381,15 +340,17 @@ if "__main__" == __name__:
     testImgList = []
     testLabelList = []
 
-    for imgPath in fio.GetFileList("TestPosSub"):
+    for imgPath in fio.GetFileList("TestPos"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(1)
-    for imgPath in fio.GetFileList("TestNegSub"):
+    for imgPath in fio.GetFileList("TestNeg"):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(-1)
     AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
     
-    AdaBoost.DrawROC()
+    AdaBoost.DrawROC(np.asarray(sio.loadmat("FinalScore.mat")["finalScore"])[0],
+        np.asarray(sio.loadmat("FinalScore.mat")["label"])[0])
+)
     #AdaBoost.DrawStrong()
     
     print("Done.")
