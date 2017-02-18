@@ -5,27 +5,6 @@ import matplotlib.pyplot as plt
 import imgtool as imt
 import mathtool as mt
 
-def Convolution(inMap,inFilter):
-    
-    if not isinstance(inFilter,np.ndarray):
-        print("フィルタ型エラー！")
-    if not isinstance(inMap,np.ndarray):
-        print("入力行列型エラー！")
-    if (1 != inFilter.shape[0] % 2) or (1 != inFilter.shape[1] % 2):
-        print("フィルタサイズエラー")
-
-    height = inMap.shape[0]
-    width  = inMap.shape[1]
-    heightNew = height - 2
-    widthNew = width - 2
-    outMap = np.zeros((heightNew,widthNew))
-
-    for y in range(1,height-1):
-        for x in range(1,width-1):
-            # 3x3 部分行列を作成し、各要素ごとの積和をとる
-            window = inMap[y-1:y+2,x-1:x+2] * inFilter
-            outMap[y-1,x-1] = window.sum()
-    return outMap
     
 def ZeroPadding(srcMap,pad):
     if not isinstance(srcMap, np.ndarray):
@@ -127,8 +106,8 @@ class CHog:
         dyFilter = np.array(((-1, 0, 1),
                              (-1, 0, 1),
                              (-1, 0, 1)))
-        dy = Convolution(self.__srcImg, dxFilter)
-        dx = Convolution(self.__srcImg, dyFilter)
+        dy = mt.Convolution(self.__srcImg, dxFilter)
+        dx = mt.Convolution(self.__srcImg, dyFilter)
         magnitude = np.sqrt((dx * dx) + (dy * dy))
         theta = np.arctan2( dy, dx )
         theta = theta + (self.__binUnit * 0.5)

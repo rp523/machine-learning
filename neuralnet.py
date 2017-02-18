@@ -109,7 +109,7 @@ if "__main__" == __name__:
     sample = x.shape[0]
     detector = x.shape[1]
     adim = 4
-    rho = 0.0001
+    rho = 0.00005
 
     a = np.array([[0.1]*adim]*detector)
     b = np.array([0.1]*detector)
@@ -120,9 +120,11 @@ if "__main__" == __name__:
     
     train = Propagate(l1,l2,l3,l4,x)
     
-    for epoch in range(2):
+    for epoch in range(200000000):
         print("epoch=",epoch+1,"lost-func val:",train.forward())
         train.backward()
+        if 0==(epoch+1)%100:
+            np.savez(("nn"+"{0:05d}".format(epoch)+".npz"),a=a,b=b,w=w)
     
     x_ = sio.loadmat("Test.mat")["testScore"]
     y_ = sio.loadmat("Test.mat")["testLabel"][0]
