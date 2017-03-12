@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import scipy.io as sio
 import gui
@@ -109,10 +110,15 @@ if "__main__" == __name__:
     sample = x.shape[0]
     detector = x.shape[1]
     adim = 4
-    rho = 0.00005
+    rho = 0.00010
 
-    a = np.array([[0.1]*adim]*detector)
-    b = np.array([0.1]*detector)
+    if os.path.exists("nn14699.npz"):
+        a = np.load("nn14699.npz")["a"]
+        b = np.load("nn14699.npz")["b"]
+    else:
+        a = np.array([[0.1]*adim]*detector)
+        b = np.array([0.1]*detector)
+
     l1 = layer1(a,rho)
     l2 = layer2()
     l3 = layer3(b,rho)
@@ -120,16 +126,22 @@ if "__main__" == __name__:
     
     train = Propagate(l1,l2,l3,l4,x)
     
-    for epoch in range(200000000):
-        print("epoch=",epoch+1,"lost-func val:",train.forward())
+    
+    for epoch in range(0):
+        w = train.forward()
         train.backward()
-        if 0==(epoch+1)%100:
+        print("epoch=",epoch+1,"loss-func val:",w)
+
             np.savez(("nn"+"{0:05d}".format(epoch)+".npz"),a=a,b=b,w=w)
     
     x_ = sio.loadmat("Test.mat")["testScore"]
     y_ = sio.loadmat("Test.mat")["testLabel"][0]
     l4_ = layer4(y_)
     test = Propagate(l1,l2,l3,l4_,x_)
+    print(test.calcScore().shape,y_.shape)
+    np.savetxt("save.csv",test.calcScore(),delimiter=",")
+    np.savetxt("save2.csv",y_,delimiter=",")
+    gui.DrawDET(test.calcScore(),y_)
     gui.DrawROC(test.calcScore(),y_)
     
     print("Done.")
