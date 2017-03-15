@@ -2,39 +2,47 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def DrawROC(finalScore,label):
+    assert(np.array(finalScore).size == np.array(label).size)
 
-    x = np.empty(0,float)
-    y = np.empty(0,float)
+    posSample = np.sum(  1 == label)
+    negSample = np.sum( -1 == label)
+    assert(posSample > 0)
+    assert(negSample > 0)
+
+    truePos  = np.empty(0,float)
+    falseNeg = np.empty(0,float)
+    falsePos = np.empty(0,float)
+    trueNeg  = np.empty(0,float)
     
-    accuracy = 0.0
     for i in range(finalScore.size):
-        
         # バイアスがfinalScore[i]だったときのROCカーブ上の点を算出
         bias = finalScore[i]
-        
-        truePos  = np.sum(np.logical_and(( 1 == label), (finalScore[i] < finalScore)))
-        falseNeg = np.sum(np.logical_and(( 1 == label), (finalScore[i] > finalScore)))
-        falsePos = np.sum(np.logical_and((-1 == label), (finalScore[i] < finalScore)))
-        trueNeg  = np.sum(np.logical_and((-1 == label), (finalScore[i] > finalScore)))
+        truePos  = np.append(truePos ,np.sum((( 1 == label) * (bias < finalScore))))
+        falseNeg = np.append(falseNeg,np.sum((( 1 == label) * (bias > finalScore))))
+        falsePos = np.append(falsePos,np.sum(((-1 == label) * (bias < finalScore))))
+        trueNeg  = np.append(trueNeg ,np.sum(((-1 == label) * (bias > finalScore))))
 
+    # accuracy = MAX( (TP+TN)/(TP+TN+FP+FN) )を計算
+    accuracy = 0.0
+    for i in range(finalScore.size):
         accuracy = max(accuracy,
-                       (truePos + trueNeg) / \
-                       (truePos + trueNeg + falsePos + falseNeg))
+                       (truePos[i] + trueNeg[i]) / \
+                       (truePos[i] + trueNeg[i] + falsePos[i] + falseNeg[i]))
         
-        if 0.0 < truePos + falseNeg:
-            falseNeg = falseNeg / (truePos + falseNeg)
-            truePos  = truePos  / (truePos + falseNeg)
-        if 0.0 < trueNeg + falsePos:
-            falsePos = falsePos / (trueNeg + falsePos)
-            trueNeg  =  trueNeg / (trueNeg + falsePos)
-        
-        x = np.append(x, falsePos)        
-        y = np.append(y,  truePos)
+    # ROC下部面積を求める
+    curveX = np.sort(falsePos / negSample)
+    curveY = np.sort(truePos  / posSample)
+    area = (curveY[0]) * (curveX[0]) * 0.5
+    for i in range(curveX.size - 1):
+        area += (curveY[i + 1] + curveY[i]) * (curveX[i + 1] - curveX[i]) * 0.5
+        if i == curveX.size - 2:
+            area += (1 + curveY[i + 1]) * (1 - curveX[i + 1]) * 0.5
     
-    plt.plot(x,y,'.' )
-    plt.xlim(0.0, 1.0)
-    plt.ylim(0.0, 1.0)
-    plt.title("ROC Curve: accuracy=" + str(accuracy))
+    plt.plot(falsePos/negSample,truePos/posSample,'.' )
+    plt.plot([0,1],[0,1])   # 基準線 y=x
+    plt.xlim(0,1)
+    plt.ylim(0,1)
+    plt.title("ROC Curve: accuracy=" + str(format(accuracy,'.3f')) + ",area=" + str(format(area,'.3f')))
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.show()
