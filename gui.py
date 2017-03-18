@@ -2,12 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def DrawROC(finalScore,label):
-    assert(np.array(finalScore).size == np.array(label).size)
+    assert(np.array(finalScore).shape == np.array(label).shape)
 
     posSample = np.sum(  1 == label)
     negSample = np.sum( -1 == label)
     assert(posSample > 0)
     assert(negSample > 0)
+    assert(posSample + negSample == label.size)
 
     truePos  = np.empty(0,float)
     falseNeg = np.empty(0,float)
