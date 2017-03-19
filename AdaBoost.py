@@ -9,6 +9,13 @@ import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
 import gui
+from enum import Enum
+from conda._vendor.toolz.itertoolz import accumulate
+
+class adaType(Enum):
+    Discrete = 1
+    Real = 2
+    SaturatedReal = 3
 
 # for文を使わずに投票されたBINの数を数えるためのクラス
 class VoteCount:
@@ -24,17 +31,19 @@ class VoteCount:
         self.__filter = np.delete(self.__filter, 0, axis=1) # 減らす列の位置はどこでもいい
 
 class CAdaBoost:
-    def __init__(self,inImgList,inLabelList,inDetectorList,loopNum):
-        self.__bin = 8
+    
+    def __init__(self,inAdaType,inAdaBin,inImgList,inLabelList,inDetectorList,loopNum):
+        self.__adaType = inAdaType
+        if self.__adaType == adaType.Discrete:
+            self.__bin = 2
+        else:
+            self.__bin = inAdaBin
         self.__loopNum = loopNum
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
         self.__featureLen = None
-        if( self.__labelList.size != len(self.__imgList) ):
-            print("size of image files and label data are not the same.")
-            exit()
-        
+        self.__thresh = np.zeros(len(inDetectorList),float)
         
         self.__Prepare()
         self.__Boost()
@@ -74,11 +83,13 @@ class CAdaBoost:
                 self.__featureLen = self.__featureLen + detector.GetFeatureLength()
         return self.__featureLen
 
+    # PosとNegが混在しているスコア行列からPosのみ、Negのみのスコア行列に分離する
     def __PosNegDevide(self,inScoreMat,inLabelList):
+        assert(inScoreMat.shape[1] == np.array(inLabelList).size)
         det = inScoreMat.shape[0]
-        scoreMat = np.transpose(inScoreMat)
-        posScoreMat = np.empty((0,det),float)
-        negScoreMat = np.empty((0,det),float)
+        scoreMat = np.transpose(inScoreMat)     # 入力サンプル x 識別器
+        posScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
+        negScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
         for i in range(len(inLabelList)):
             if 1 == inLabelList[i]:
                 posScoreMat = np.append(posScoreMat, [scoreMat[i]],axis=0)
@@ -86,8 +97,8 @@ class CAdaBoost:
                 negScoreMat = np.append(negScoreMat, [scoreMat[i]],axis=0)
             else:
                 print("bug!")
-        posScoreMat = np.transpose(posScoreMat)
-        negScoreMat = np.transpose(negScoreMat)
+        posScoreMat = np.transpose(posScoreMat)   # 識別器 x 入力サンプル
+        negScoreMat = np.transpose(negScoreMat)   # 識別器 x 入力サンプル
         return posScoreMat, negScoreMat
         
     class Reliability:
@@ -106,11 +117,8 @@ class CAdaBoost:
         self.__trainScoreMat = np.transpose(self.__trainScoreMat)
 
         detectorNum = self.__trainScoreMat.shape[0]
-        print("feature dim :", detectorNum)
-        if 0 == self.__trainScoreMat.shape[1]:
-            print("Abort! NO sample found.")
-            exit()
-
+        detLen = min(self.__loopNum,detectorNum)
+ 
         # スコア行列をPos/Negで分ける
         trainPosScore, trainNegScore = self.__PosNegDevide(self.__trainScoreMat, self.__labelList)
         posSample = trainPosScore.shape[1]
@@ -119,138 +127,178 @@ class CAdaBoost:
         # サンプルデータの重みを初期化
         posSampleWeight = np.array([1.0/(posSample)]*posSample)
         negSampleWeight = np.array([1.0/(negSample)]*negSample)
-        
-        #ヒストグラム算出用のフィルタテンソルを作成
-        posBinCounter = VoteCount(binNum=self.__bin,
-                                  detectorNum=detectorNum,
-                                  sampleNum=posSample)
-        negBinCounter = VoteCount(binNum=self.__bin,
-                                  detectorNum=detectorNum,
-                                  sampleNum=negSample)
-        
-        # スコアをBIN値に換算
-        trainPosBin = (trainPosScore * self.__bin).astype(np.int64)
-        trainNegBin = (trainNegScore * self.__bin).astype(np.int64)   
-        # 万が一値がBIN値と同じ場合はBIN-1としてカウントする
-        trainPosBin -= 1*(trainPosBin == self.__bin)    
-        trainNegBin -= 1*(trainNegBin == self.__bin)    
-
+        assert(posSampleWeight.size == posSample)
+        assert(negSampleWeight.size == negSample)
+    
         # 強識別器情報の記録メモリを確保
-        detLen = min(self.__loopNum,detectorNum)
-        strongDet = np.zeros((detLen,self.__bin))
-        strongDetID = np.zeros(detLen)
-        for w in range(detLen):
+        strongDetBin = np.zeros((detLen,self.__bin),float)
+        strongDetID = np.zeros(detLen,int)
+        parity = np.zeros(detLen,int)
 
-            # 各識別器の性能を計算
-            #for d in range(detectorNum):
-            #    for i in range(sampleNum):
-            #        bin = mt.IntMinMax(self.__trainScoreMat[d][i] * self.__bin, 0, self.__bin - 1)
-            #        if (1 == self.__labelList[i]):
-            #            histoPos[d][bin] = histoPos[d][bin] + sampleWeight[i]
-            #        elif (-1 == self.__labelList[i]):
-            #            histoNeg[d][bin] = histoNeg[d][bin] + sampleWeight[i]
+        if self.__adaType == adaType.Discrete:
+
+            for w in range(detLen):
+
+                errorRateVec = np.zeros(detLen,float)
+                threshVec = np.zeros(detLen,float)
+                parityVec = np.zeros(detLen,float)
+
+                for weakCandidate in range(detLen):
+                    scoreColumn = np.transpose(np.array([list(self.__trainScoreMat[weakCandidate])]))
+                    oneRow = np.ones((1,posSample+negSample),float)
+                    scoreCopyMat = np.dot(scoreColumn, oneRow)
+    
+                    print(w,weakCandidate,self.__trainScoreMat[weakCandidate].shape,scoreCopyMat.shape)
+                    errorRateP = np.sum(   \
+                        (self.__trainPosScore[weakCandidate] < scoreCopyMat) * (self.__labelList ==  1) +    \
+                        (self.__trainPosScore[weakCandidate] > scoreCopyMat) * (self.__labelList == -1)      \
+                        ,axis=1)
+                    errorRatePmin = np.min(errorRateP)
+                    errorRateN = np.sum(   \
+                        (self.__trainNegScore[weakCandidate] > scoreCopyMat) * (self.__labelList ==  1) +    \
+                        (self.__trainNegScore[weakCandidate] < scoreCopyMat) * (self.__labelList == -1)      \
+                        ,axis=1)
+                    errorRateNmin = np.min(errorRateN)
+                    
+                    # for文を抜けても残る情報
+                    if (errorRatePmin < errorRateNmin):
+                        errorRateVec[weakCandidate] = errorRatePmin
+                        threshVec[weakCandidate] = self.__trainPosScore[weakCandidate][np.argmin(errorRatePmin)]
+                        parityVec[weakCandidate] = 1
+                    else:
+                        errorRateVec[weakCandidate] = errorRateNmin
+                        threshVec[weakCandidate] = self.__trainNegScore[weakCandidate][np.argmin(errorRateNmin)]
+                        parityVec[weakCandidate] = -1
+                
+                # 選択した最優秀識別器のスコアをもとに、サンプル重みを更新
+                bestDet = np.argmin(errorRateVec)
+                self.__thresh[w] = threshVec[bestDet]
+                errorRate = errorRateVec[bestDet]
+
+                epsilon = 0.00001
+                reliability = 0.5 * np.log((1.0 - errorRate + epsilon) / (errorRate + epsilon))
+                strongDetBin[w] = np.array([- parityVec[bestDet] * reliability, parityVec[bestDet] * reliability])
+                strongDetID[w] = bestDet
+    
+                # サンプル重みを更新&正規化する
+                posExponent = -1.0 * (strongDetBin[w][0] * (trainPosScore[bestDet] <= self.__thresh[w]) + \
+                                      strongDetBin[w][1] * (trainPosScore[bestDet] >  self.__thresh[w]))
+                posMax = np.max(posExponent)
+                posSampleWeight *= np.exp(posExponent - posMax)
+                posSampleWeight /= np.sum(posSampleWeight)
+
+                negExponent =  1.0 * (strongDetBin[w][0] * (trainNegScore[bestDet] <= self.__thresh[w]) + \
+                                      strongDetBin[w][1] * (trainNegScore[bestDet] >  self.__thresh[w]))
+                negMax = np.max(negExponent)
+                negSampleWeight *= np.exp(negExponent - negMax)
+                negSampleWeight /= np.sum(negSampleWeight)
+
+                # 選択除去された弱識別器の情報を次ループでは考えない
+                trainPosScore = np.delete(trainPosScore, bestDet, axis=0)
+                trainNegScore = np.delete(trainNegScore, bestDet, axis=0)
+                posSample -= 1
+                negSample -= 1
+
+        elif (self.__adaType == adaType.Real) or (self.__adaType == adaType.SaturatedReal):
+            #ヒストグラム算出用のフィルタテンソルを作成
+            posBinCounter = VoteCount(binNum=self.__bin,
+                                      detectorNum=detectorNum,
+                                      sampleNum=posSample)
+            negBinCounter = VoteCount(binNum=self.__bin,
+                                      detectorNum=detectorNum,
+                                      sampleNum=negSample)
+            remainDetIDList = np.arange(detectorNum)
             
-            histoPos = posBinCounter.calc(trainPosBin, posSampleWeight)
-            if np.any(np.isnan(histoPos)):
-                print("histoPos has NAN when created.")
-                exit()
-            histoNeg = negBinCounter.calc(trainNegBin, negSampleWeight)
-            if np.any(np.isnan(histoNeg)):
-                print("histoNeg has NAN when created.")
-                exit()
-
-            # 残っている弱識別器から最優秀のものを選択            
-            #detectorAbility = np.zeros(detectorNum)
-            #for d in range(detectorNum):
-            #    for b in range(self.__bin):
-            #        detectorAbility[d] = detectorAbility[d] + np.sqrt(histoPos[d][b]*histoNeg[d][b])
-            bestDet = np.argmin(np.sum(histoPos * histoNeg, axis=1))
-            if np.any(np.isnan(bestDet)):
-                print("bestDet is NAN.")
-                exit()
-
-            # 最優秀識別器の信頼性を算出
-            #for b in range(self.__bin):
-            #    if (0.0 != histoPos[bestDetectorID][b]) and (0.0 != histoNeg[bestDetectorID][b]): 
-            #        h = np.append(h, np.log(histoPos[bestDetectorID][b]/histoNeg[bestDetectorID][b]))
-            #    else:
-            #        h = np.append(h, 0.0)
-            # ゼロ割回避
-            if np.any(np.isnan(histoPos)):
-                print("histoPos has NAN before escape from zero-div.")
-                exit()
-            histoPos[bestDet] += 1*(0.0 == histoPos[bestDet])
-            if np.any(np.isnan(histoPos)):
-                print("histoPos has NAN after escape from zero-div.")
-                exit()
-
-            histoNeg[bestDet] += 1*(0.0 == histoNeg[bestDet])
-            if np.any(np.isnan(histoNeg)):
-                print("histoNeg has NAN after escape from zero-div.")
-                exit()
+            # スコアをBIN値に換算
+            trainPosBin = (trainPosScore * self.__bin).astype(np.int64)
+            trainNegBin = (trainNegScore * self.__bin).astype(np.int64)   
+            # 万が一値がBIN値と同じ場合はBIN-1としてカウントする
+            trainPosBin -= 1*(trainPosBin >= self.__bin)    
+            trainNegBin -= 1*(trainNegBin >= self.__bin)
+            # 負の値はとらないはずだが、一応確認
+            assert(not (trainPosBin < 0).any())
+            assert(not (trainNegBin < 0).any())
 
             '''
-            # RealAdaBoost
-            epsilon = 0.00001
-            h = (histoPos[bestDet] + epsilon )/(histoNeg[bestDet] + epsilon)
+            histP = np.zeros(self.__bin,int)
+            histN = np.zeros(self.__bin,int)
+            for d in range(len(trainPosBin)):
+                for i in range(len(trainPosBin[d])):
+                    for b in range(self.__bin):
+                        if trainPosBin[d][i] == b:
+                            histP[b] += 1
+            for d in range(len(trainNegBin)):
+                for i in range(len(trainNegBin[d])):
+                    for b in range(self.__bin):
+                        if trainNegBin[d][i] == b:
+                            histN[b] += 1
+            plt.plot(np.arange(self.__bin)/self.__bin,histP/np.sum(histP),'.')
+            plt.plot(np.arange(self.__bin)/self.__bin,histN/np.sum(histN),'.')
+            plt.plot(np.arange(self.__bin)/self.__bin,(histP+histN)/np.sum(histP+histN),'.')
+            plt.show()
+            exit()
             '''
-            # 飽和型RealAdaBoost
-            alpha = 0.1
-            expPos = np.power(histoPos[bestDet], alpha)
-            expNeg = np.power(histoNeg[bestDet], alpha)
-            h = ( expPos - expNeg) / (expPos + expNeg)
-            if np.any(np.isnan(h)):
-                print("h has NAN.")
-                exit()
+                            
+            for w in range(detLen):
 
-            strongDet[w] = h
-            strongDetID[w] = bestDet
+                # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
+                histoPos = posBinCounter.calc(trainPosBin, posSampleWeight)
+                histoNeg = negBinCounter.calc(trainNegBin, negSampleWeight)
 
-            # 選択した最優秀識別器のスコアをもとに、サンプル重みを更新
-            #for i in range(sampleNum):
-            #    d = bestDetectorID
-            #    b = mt.IntMinMax(self.__trainScoreMat[d][i] * self.__bin, 0, self.__bin - 1)
-            #    if (0 < histoPos[d][b]) and (0 < histoNeg[d][b]):
-            #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
-            reliability = self.Reliability(h)
-            # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
-            posMax = np.max(-1.0 * reliability.calc(bin=trainPosBin[bestDet]))
-            negMax = np.max( 1.0 * reliability.calc(bin=trainNegBin[bestDet]))
-            if 0.0 == np.sum(posSampleWeight):
-                print("positive sample regularize failed.")
-                exit()
-            posSampleWeight *= np.exp(-1.0 * reliability.calc(bin=trainPosBin[bestDet]) - posMax)
-            posSampleWeight /= np.sum(posSampleWeight)
-            if np.any(np.isnan(posSampleWeight)):
-                print("posSampleWeight has NAN.")
-                exit()
-            negSampleWeight *= np.exp( 1.0 * reliability.calc(bin=trainNegBin[bestDet]) - negMax)
-            if 0.0 == np.sum(negSampleWeight):
-                print("negative sample regularize failed.")
-                exit()
-            negSampleWeight /= np.sum(negSampleWeight)
-            if np.any(np.isnan(negSampleWeight)):
-                print("negSampleWeight has NAN.")
-                exit()
+                # 残っている弱識別器から最優秀のものを選択            
+                bestDet = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
+                
+                #ゼロ割り回避
+                epsilon = 0.00001
+                histoPos += epsilon
+                histoNeg += epsilon
+                
+                # 最優秀識別器の信頼性を算出
+                if self.__adaType == adaType.Real:
+                    h = np.log(histoPos[bestDet] + epsilon )/(histoNeg[bestDet] + epsilon)
+                elif self.__adaType == adaType.SaturatedReal:
+                    alpha = 0.4
+                    expPos = np.power(histoPos[bestDet], alpha)
+                    expNeg = np.power(histoNeg[bestDet], alpha)
+                    h = ( expPos - expNeg) / (expPos + expNeg)
+                
+                strongDetBin[w] = h
+                strongDetID[w] = remainDetIDList[bestDet]
+    
+                # 選択した最優秀識別器のスコアをもとに、サンプル重みを更新
+                #for i in range(sampleNum):
+                #    d = bestDetectorID
+                #    b = mt.IntMinMax(self.__trainScoreMat[d][i] * self.__bin, 0, self.__bin - 1)
+                #    if (0 < histoPos[d][b]) and (0 < histoNeg[d][b]):
+                #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
+                reliability = self.Reliability(h)
+                # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
+                posMax = np.max(-1.0 * reliability.calc(bin=trainPosBin[bestDet]))
+                negMax = np.max( 1.0 * reliability.calc(bin=trainNegBin[bestDet]))
+    
+                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin=trainPosBin[bestDet]) - posMax)
+                posSampleWeight /= np.sum(posSampleWeight)
+    
+                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin=trainNegBin[bestDet]) - negMax)
+                negSampleWeight /= np.sum(negSampleWeight)
+                
+                # 選択除去された弱識別器の情報を次ループでは考えない
+                trainPosBin = np.delete(trainPosBin, bestDet, axis=0)
+                trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
+                remainDetIDList = np.delete(remainDetIDList, bestDet)
+                posSample -= 1
+                negSample -= 1
+                posBinCounter.reduceDetector()
+                negBinCounter.reduceDetector()
+
+                if (0 == (w + 1) % 100) or (w + 1 == detLen):
+                    print("boosting weak detector:", w + 1)
             
-            # 選択除去された弱識別器の情報を次ループでは考えない
-            trainPosBin = np.delete(trainPosBin, bestDet, axis=0)
-            trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
-            posSample -= 1
-            negSample -= 1
-            posBinCounter.reduceDetector()
-            negBinCounter.reduceDetector()
-
-            if (0 == (w + 1) % 100) or (w + 1 == detLen):
-                print("boosting weak detector:", w + 1)
-        
-            if np.any(np.isnan(strongDet)):
-                print("strongDetector has NAN.@Boost")
-            if np.any(np.isnan(strongDetID)):
-                print("strongDetector has NAN.@Boost")
+                assert(not np.any(np.isnan(strongDetBin)))
+                assert(not np.any(np.isnan(strongDetID)))
 
         dict = {}
-        dict["strong"] = strongDet
+        dict["strong"] = strongDetBin
         dict["strongID"] = strongDetID
         sio.savemat("strong.mat", dict )
         
@@ -258,16 +306,11 @@ class CAdaBoost:
 
     def Evaluate(self,inImgList,inLabelList):
         
-        if not os.path.exists("strong.mat"):
-            print("No strong detector was found.")
-            exit()
         strongDetector   = np.array(sio.loadmat("strong.mat")["strong"])
-        strongDetectorID = np.array(sio.loadmat("strong.mat")["strongID"])[0]
+        strongDetectorID = np.array(sio.loadmat("strong.mat")["strongID"]).astype(np.int)[0]
         
-        if np.any(np.isnan(strongDetector)):
-            print("strongDetector has NAN.@Evaluate")
-        if np.any(np.isnan(strongDetectorID)):
-            print("strongDetectorID has NAN.@Evaluate")
+        assert(not np.any(np.isnan(strongDetector)))
+        assert(not np.any(np.isnan(strongDetectorID)))
 
         # 評価用サンプルに対する各弱識別器のスコアを算出
         
@@ -318,40 +361,38 @@ class CAdaBoost:
     
 if "__main__" == __name__:
 
-    Hog8_8_16 = CHog(CHogParam(bin=8, cellX=8,cellY=16,blockX=1,blockY=1))
-    Hog8_4_8 = CHog(CHogParam(bin=8, cellX=4,cellY=8,blockX=1,blockY=1,jointXOR=False,jointAND=False,jointOR=False))
-    Hog8_2_4 = CHog(CHogParam(bin=8, cellX=2,cellY=4,blockX=1,blockY=1,jointXOR=False,jointAND=False,jointOR=False))
-    Hog888 = CHog(CHogParam(bin=8, cellX=8,cellY=8,blockX=1,blockY=1))
-    Hog881 = CHog(CHogParam(bin=8, cellX=8,cellY=1,blockX=1,blockY=1))
-    Hog818 = CHog(CHogParam(bin=8, cellX=1,cellY=8,blockX=1,blockY=1))
-    detectorList = [Hog8_4_8]
+    TrainPosDir = "TrainPos"
+    TrainNegDir = "TrainNeg"
+    TestPosDir  = "TestPos"
+    TestNegDir  = "TestNeg"
+    detectorList = [CHog(CHogParam(bin=8, cellX=6,cellY=12,blockX=1,blockY=1))]
     
     trainImgList = []
     trainLabelList = []
 
-    for imgPath in fio.GetFileList("TrainPos"):
+    for imgPath in fio.GetFileList(TrainPosDir):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(1)
-    for imgPath in fio.GetFileList("TrainNeg"):
+    for imgPath in fio.GetFileList(TrainNegDir):
         trainImgList.append(imt.imgPath2ndarray(imgPath))
         trainLabelList.append(-1)
-    AdaBoost = CAdaBoost(trainImgList,trainLabelList,inDetectorList=detectorList,loopNum=256)
+    AdaBoost = CAdaBoost(inAdaType=adaType.SaturatedReal,
+                         inAdaBin=16,
+                         inImgList=trainImgList,
+                         inLabelList=trainLabelList,
+                         inDetectorList=detectorList,
+                         loopNum=4000)
     
     testImgList = []
     testLabelList = []
 
-    for imgPath in fio.GetFileList("TestPos"):
+    for imgPath in fio.GetFileList(TestPosDir):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(1)
-    for imgPath in fio.GetFileList("TestNeg"):
+    for imgPath in fio.GetFileList(TestNegDir):
         testImgList.append(imt.imgPath2ndarray(imgPath))
         testLabelList.append(-1)
     AdaBoost.Evaluate(inImgList=testImgList,inLabelList=testLabelList)
     
-    AdaBoost.DrawROC(np.asarray(sio.loadmat("FinalScore.mat")["finalScore"])[0],
+    gui.DrawROC(np.asarray(sio.loadmat("FinalScore.mat")["finalScore"])[0],
         np.asarray(sio.loadmat("FinalScore.mat")["label"])[0])
-)
-    #AdaBoost.DrawStrong()
-    
-    print("Done.")
-    exit()
