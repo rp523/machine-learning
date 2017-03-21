@@ -30,13 +30,14 @@ class SVM:
         self.__Optimize()
         
     def __KernelFunc(self,x1,x2):
-        assert isinstance(x1,np.ndarray)
-        assert isinstance(x2,np.ndarray)
-        assert x1.size == x2.size
-        assert x1.ndim == x1.ndim
+        assert(isinstance(x1,np.ndarray))
+        assert(isinstance(x2,np.ndarray))
+        assert(x1.shape == x2.shape)
+        assert(x1.ndim == x2.ndim)
         
         return np.exp(-np.sum((x1 - x2)**2))
-        #return 1 + np.sum(x1 * x2, axis = x1.ndim - 1)
+        #return np.exp(-np.sqrt(np.sum((x1 - x2)**2)))
+        #return (1 + np.sum(x1 * x2)) ** 5
         
     def __MakeGram(self):
 
@@ -104,19 +105,21 @@ class SVM:
             if False == updated:
                 break
 
-        print(np.sum(self.__gamma == 0.0) / self.__gamma.size)
-        exit()
-        
     def Calc(self,testScore):
-        assert isinstance(testScore, np.ndarray)
-        assert None != self.__gamma
+        assert(isinstance(testScore, np.ndarray))
+        assert(None != self.__gamma)
         
-        testScoreTrans = np.transpose(testScore)
-        k = self.__gamma \
-          * self.__trainLabel \
-          * self.__KernelFunc(testScore, self.__trainSample)\
-          / self.__cost
-        return np.sum(k) 
+        ret = np.empty(0,float)
+        for testSample in range(testScore.shape[0]):
+            score = 0.0
+            for v in range(self.__trainSample.shape[0]):
+                score += self.__gamma[v] \
+                      * self.__trainLabel[v] \
+                      * self.__KernelFunc(testScore[testSample], self.__trainSample[v])\
+                      / self.__cost
+            ret = np.append(ret,score)
+        print(np.sum(self.__gamma != 0.0) / self.__gamma.size)
+        return ret
            
 if "__main__" == __name__:
     
@@ -130,8 +133,9 @@ if "__main__" == __name__:
     testScore = sio.loadmat("Test.mat")["testScore"]
     testLabel = sio.loadmat("Test.mat")["testLabel"][0]
     
-    svm = SVM(trainScore,trainLabel,0.5)
-    score = SVM.Calc(testScore)
+    svm = SVM(trainScore,trainLabel,100.0)
+    
+    score = svm.Calc(testScore = testScore)
     '''
     #LIBSVM
     problem = svm_problem(trainLabel,trainScore.tolist())
