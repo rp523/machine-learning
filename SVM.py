@@ -51,12 +51,20 @@ class SVM:
         return np.dot(self.__gamma * self.__trainLabel,self.__gram[index])
     
     def __MeetsKKT(self,index):
+        # ラグランジュ乗数γが０なら、βに関するKKT相補性条件よりソフトマージンがゼロでなければならない。
+        # つまりindexはサポートベクトルに含まれず、ヒンジ点の右側にある（べき）。
+        # よって (1-yf) <= 0 ならKKT条件を満たしている。
         if 0.0 >= self.__gamma[index]:
-            return (1.0 <= self.__CalcTrainSample(index) * self.__trainLabel[index])
-        if self.__cost <= self.__gamma[index]:
-            return (1.0 >= self.__CalcTrainSample(index) * self.__trainLabel[index])
+            return (1.0 - self.__CalcTrainSample(index) * self.__trainLabel[index] <= 0.0)
+        # ラグランジュ乗数γが許容範囲内MAXなら、γに関するKKT相補性条件よりソフトマージンが有限でなければならない。
+        # つまりindexはサポートベクトルに含まれていて、ヒンジ点の左側にある（べき）。
+        # よって (1-yf) >= 0 ならKKT条件を満たしている。
+        elif self.__cost <= self.__gamma[index]:
+            return (1.0 - self.__CalcTrainSample(index) * self.__trainLabel[index] >= 0.0)
+        # 乗数γが0と許容範囲MAXとの間にあるなら、それはヒンジ点である（べき）。
+        # よって (1-yf) == 0 ならKKT条件を満たしている。
         else:
-            return (1.0 == self.__CalcTrainSample(index) * self.__trainLabel[index])
+            return (1.0 - self.__CalcTrainSample(index) * self.__trainLabel[index] == 0.0)
             
     def __SMO(self,index1,index2):
         
