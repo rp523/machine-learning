@@ -4,9 +4,14 @@ import fileIO as fio
 import scipy.io as sio
 import mathtool as mt
 
+def SignBinarize(x):
+    out = 1*(x >= 0.0) - 1*(x < 0.0)
+    assert(out.shape == x.shape)
+    return out
+
 class CAdamParam:
     
-    def __init__(self, input, output, eta = 0.0001, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8):
+    def __init__(self, input, output, eta = 0.001, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8):
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
@@ -39,11 +44,11 @@ class CLayer:
         print("to be overridden.")
     def backward(self,dzdy):
         print("to be overridden.")
-        
 
 class CFullConnectlayer(CLayer):
-    def __init__(self,input,output):
+    def __init__(self,input,output,regu):
         self.w = CAdamParam(input = input, output = output)
+        self.regu = regu
     
     def forward(self,x):
         
@@ -61,8 +66,11 @@ class CFullConnectlayer(CLayer):
                 for xidx in range(self.w.shape[0]):
                     dzdw[xidx,yidx] += self.x[s,xidx] * 
         '''
-        dzdw = np.dot(np.transpose(self.x), dzdy) / dzdy.shape[0]
-        self.w.update(dzdw)
+        dzdw = np.dot(np.transpose(self.x), dzdy)
+        dzdw = dzdw / dzdy.shape[0]
+        w_buf = self.w.Get()
+        reguGrad = self.regu * w_buf * (1.0 - w_buf * w_buf)
+        self.w.update(dzdw + reguGrad)
         
         # １つ前のlayerへgradientを伝搬させる
         '''
@@ -75,6 +83,19 @@ class CFullConnectlayer(CLayer):
         dzdx = np.dot(dzdy, np.transpose(self.w.Get()))
         assert(dzdx.shape == self.x.shape)
         return dzdx
+
+    def forwardBinary(self,x):
+        return np.dot(x,SignBinarize(self.w.Get()))
+
+class CSTE(CLayer):
+    def __init__(self):
+        pass
+    def forward(self,x):
+        return SignBinarize(x)
+    def backward(self,dzdy):
+        return (dzdy < 1) * (dzdy > -1) * dzdy
+    def forwardBinary(self,x):
+        return self.forward(x)
 
 class CReLU(CLayer):
     def __init__(self):
@@ -109,7 +130,7 @@ class CSquare(CLayer):
         assert(self.label.shape == self.xv.shape)
 
         return 0.5 * np.sum(((self.xv - self.label)**2))
-        
+
     def backward(self):
 
         # １つ前のlayerへgradientを伝搬させる
@@ -158,6 +179,11 @@ class CLayerController:
         for l in range(len(self.layers)):
             act = self.layers[l].forward(act)
         return act
+    def predictBinary(self,x,y):
+        act = x
+        for l in range(len(self.layers)):
+            act = self.layers[l].forwardBinary(act)
+        return act
     def backward(self):
         grad = self.output.backward()
         for l in range(len(self.layers)-1, -1, -1):
@@ -172,15 +198,14 @@ if "__main__" == __name__:
     testScore = sio.loadmat("Test.mat")["testScore"]
     testLabel = sio.loadmat("Test.mat")["testLabel"][0]
     
-    batchSize = 128
+    batchSize = 64
+    regu = 1
     layers = CLayerController()
-    layers.append(CFullConnectlayer(detector,512))
-    layers.append(CSigmoid())
-    layers.append(CFullConnectlayer(512,512))
-    layers.append(CSigmoid())
-    layers.append(CFullConnectlayer(512,32))
-    layers.append(CSigmoid())
-    layers.append(CFullConnectlayer(32,1))
+    layers.append(CFullConnectlayer(detector,128,regu))
+    layers.append(CSTE())
+    layers.append(CFullConnectlayer(128,32,regu))
+    layers.append(CSTE())
+    layers.append(CFullConnectlayer(32,1,regu))
     layers.setOut(CSquareHinge())
     
     for epoch in range(100000000000):
@@ -190,5 +215,8 @@ if "__main__" == __name__:
         loss = layers.forward(trainScore[batchID], trainLabel[batchID])
         layers.backward()
         if epoch % 100 == 0:
-            print(epoch,loss,mt.CalcAccuracy(layers.predict(testScore),testLabel))
+            print(epoch,loss,end=",")
+            print(mt.CalcAccuracy(layers.predict(testScore),testLabel),end=",")
+            print(mt.CalcAccuracy(layers.predictBinary(testScore,testLabel),testLabel),end=",")
+            print()
     print("Done.")
