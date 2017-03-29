@@ -16,6 +16,9 @@ class CAdamParam:
         self.beta2 = beta2
         self.epsilon = epsilon
         self.eta = eta
+        self.input = input
+        self.output = output
+
         self.m = np.zeros((input,output),float)
         self.v = np.zeros((input,output),float)
         self.param = np.random.randn(input,output) / np.sqrt(input)
@@ -33,6 +36,9 @@ class CAdamParam:
         mhat = self.m / (1.0 - self.beta1Pow)
         vhat = self.v / (1.0 - self.beta2Pow)
         self.param = self.param - self.eta * mhat / (np.sqrt(vhat) + self.epsilon)
+        
+        # Noise Injection
+        #self.param = self.param + np.random.randn(self.input,self.output) / self.input
     
     def Get(self):
         return self.param
@@ -67,7 +73,6 @@ class CFullConnectlayer(CLayer):
                     dzdw[xidx,yidx] += self.x[s,xidx] * 
         '''
         dzdw = np.dot(np.transpose(self.x), dzdy)
-        dzdw = dzdw / dzdy.shape[0]
         w_buf = self.w.Get()
         reguGrad = self.regu * w_buf * (1.0 - w_buf * w_buf)
         self.w.update(dzdw + reguGrad)
@@ -85,7 +90,10 @@ class CFullConnectlayer(CLayer):
         return dzdx
 
     def forwardBinary(self,x):
-        return np.dot(x,SignBinarize(self.w.Get()))
+        return SignBinarize(np.dot(x,SignBinarize(self.w.Get())))
+    
+    def OutputParam(self):
+        return self.w.Get()
 
 class CSTE(CLayer):
     def __init__(self):
@@ -103,6 +111,8 @@ class CReLU(CLayer):
     def forward(self,x):
         self.valid = (x > 0.0)
         return x * self.valid
+    def forwardBinary(self,x):
+        return x * (x > 0.0)
     def backward(self,dzdy):
         return dzdy * self.valid
 
@@ -129,12 +139,13 @@ class CSquare(CLayer):
         self.xv = np.transpose(self.x)[0]
         assert(self.label.shape == self.xv.shape)
 
-        return 0.5 * np.sum(((self.xv - self.label)**2))
+        return 0.5 * np.average(((self.xv - self.label)**2))
 
     def backward(self):
 
         # １つ前のlayerへgradientを伝搬させる
         dydx = self.xv - self.label
+        dydx /= self.xv.size
         dydx = np.transpose([dydx])
 
         assert(dydx.shape == self.x.shape)
@@ -150,7 +161,7 @@ class CSquareHinge(CLayer):
         self.xv = np.transpose(self.x)[0]
         assert(self.label.shape == self.xv.shape)
 
-        return 0.5 * np.sum(\
+        return 0.5 * np.average(\
             (self.label ==  1) * (self.xv <   1) * ((self.xv - 1)**2) +\
             (self.label == -1) * (self.xv >  -1) * ((self.xv + 1)**2))
         
@@ -158,6 +169,7 @@ class CSquareHinge(CLayer):
 
         dydx = (self.label ==  1) * (self.xv <   1) * (self.xv - 1) +\
                (self.label == -1) * (self.xv >  -1) * (self.xv + 1)
+        dydx /= self.xv.size
         dydx = np.transpose([dydx])
         assert(dydx.shape == self.x.shape)
         return dydx
@@ -199,24 +211,25 @@ if "__main__" == __name__:
     testLabel = sio.loadmat("Test.mat")["testLabel"][0]
     
     batchSize = 64
-    regu = 1
+    regu = 0.0#1e-2
     layers = CLayerController()
     layers.append(CFullConnectlayer(detector,128,regu))
     layers.append(CSTE())
     layers.append(CFullConnectlayer(128,32,regu))
     layers.append(CSTE())
     layers.append(CFullConnectlayer(32,1,regu))
-    layers.setOut(CSquareHinge())
+    layers.setOut(CSquare())
     
     for epoch in range(100000000000):
 
         batchID = np.random.choice(range(sample),batchSize,replace = False)
-        #loss = layers.forward(trainScore, trainLabel)
         loss = layers.forward(trainScore[batchID], trainLabel[batchID])
         layers.backward()
         if epoch % 100 == 0:
             print(epoch,loss,end=",")
             print(mt.CalcAccuracy(layers.predict(testScore),testLabel),end=",")
+            print(mt.CalcROCArea(layers.predict(testScore),testLabel),end=",")
             print(mt.CalcAccuracy(layers.predictBinary(testScore,testLabel),testLabel),end=",")
+            print(mt.CalcROCArea(layers.predictBinary(testScore,testLabel),testLabel),end=",")
             print()
     print("Done.")
