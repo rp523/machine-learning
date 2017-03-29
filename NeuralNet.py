@@ -210,14 +210,15 @@ if "__main__" == __name__:
     testScore = sio.loadmat("Test.mat")["testScore"]
     testLabel = sio.loadmat("Test.mat")["testLabel"][0]
     
-    batchSize = 64
+    batchSize = 32
     regu = 0.0#1e-2
     layers = CLayerController()
     layers.append(CFullConnectlayer(detector,128,regu))
-    layers.append(CSTE())
+    layers.append(CReLU())
     layers.append(CFullConnectlayer(128,32,regu))
-    layers.append(CSTE())
+    layers.append(CReLU())
     layers.append(CFullConnectlayer(32,1,regu))
+    layers.append(CSigmoid())
     layers.setOut(CSquare())
     
     for epoch in range(100000000000):
@@ -229,7 +230,5 @@ if "__main__" == __name__:
             print(epoch,loss,end=",")
             print(mt.CalcAccuracy(layers.predict(testScore),testLabel),end=",")
             print(mt.CalcROCArea(layers.predict(testScore),testLabel),end=",")
-            print(mt.CalcAccuracy(layers.predictBinary(testScore,testLabel),testLabel),end=",")
-            print(mt.CalcROCArea(layers.predictBinary(testScore,testLabel),testLabel),end=",")
             print()
     print("Done.")
