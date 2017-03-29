@@ -4,6 +4,7 @@ import fileIO as fio
 import scipy.io as sio
 import mathtool as mt
 
+
 def SignBinarize(x):
     out = 1*(x >= 0.0) - 1*(x < 0.0)
     assert(out.shape == x.shape)
@@ -44,7 +45,7 @@ class CAdamParam:
         return self.param
 
 class CLayer:
-    def __init__(self,input,output):
+    def __init__(self,input,output,validRate):
         print("to be overridden.")
     def forward(self,x):
         print("to be overridden.")
@@ -52,40 +53,35 @@ class CLayer:
         print("to be overridden.")
 
 class CFullConnectlayer(CLayer):
-    def __init__(self,input,output,regu):
+    def __init__(self,input,output,validRate,regu = 0.0):
         self.w = CAdamParam(input = input, output = output)
         self.regu = regu
+        self.output = output
+        self.validRate = validRate
     
     def forward(self,x):
-        
         self.x = x  #確認用
-        self.y = np.dot(x,self.w.Get())
-        
+        # DropOutのためのフィルタ行列
+        self.valid = np.diag(1*(np.random.rand(self.output) < self.validRate))
+        self.y = np.dot(x,np.dot(self.w.Get(),self.valid))
+        return self.y
+
+    def predict(self,x):
+        self.y = np.dot(x,self.w.Get()) * self.validRate
         return self.y
 
     def backward(self,dzdy):
 
-        '''
-        dzdw = np.zeros(self.w.shape,float)
-        for s in range(dzdy.shape[0]):
-            for yidx in range(self.w.shape[1]):
-                for xidx in range(self.w.shape[0]):
-                    dzdw[xidx,yidx] += self.x[s,xidx] * 
-        '''
-        dzdw = np.dot(np.transpose(self.x), dzdy)
+        # DropOutを加味したgradient
+        dzdyValid = np.dot(dzdy,self.valid)
+        
+        dzdw = np.dot(np.transpose(self.x), dzdyValid)
         w_buf = self.w.Get()
         reguGrad = self.regu * w_buf * (1.0 - w_buf * w_buf)
         self.w.update(dzdw + reguGrad)
         
         # １つ前のlayerへgradientを伝搬させる
-        '''
-        dzdx = np.zeros(self.x.shape,float)
-        for s in range(dzdy.shape[0]):
-            for yidx in range(self.w.shape[1]):
-                for xidx in range(self.w.shape[0]):
-                    dzdx[s,xidx] += dzdy[s,yidx] * self.w[xidx,yidx]
-        '''
-        dzdx = np.dot(dzdy, np.transpose(self.w.Get()))
+        dzdx = np.dot(dzdyValid, np.transpose(self.w.Get()))
         assert(dzdx.shape == self.x.shape)
         return dzdx
 
@@ -106,26 +102,32 @@ class CSTE(CLayer):
         return self.forward(x)
 
 class CReLU(CLayer):
-    def __init__(self):
-        pass
+    def __init__(self,validRate):
+        self.validRate = validRate
     def forward(self,x):
-        self.valid = (x > 0.0)
-        return x * self.valid
-    def forwardBinary(self,x):
-        return x * (x > 0.0)
+        # DropOutのためのフィルタ行列
+        self.valid = np.diag(1*(np.random.rand(x.shape[1]) < self.validRate))
+        return np.dot(x, self.valid)
+    def predict(self,x):
+        return x * (x > 0.0) * self.validRate
     def backward(self,dzdy):
-        return dzdy * self.valid
+        return np.dot(dzdy,self.valid)
 
 class CSigmoid(CLayer):
-    def __init__(self):
+    def __init__(self,validRate):
+        self.validRate = validRate
         pass
     def forward(self,x):
+        self.valid = np.diag(1*(np.random.rand(x.shape[1]) < self.validRate))
         self.y = 1.0 / (1.0 + np.exp(-x))
+        self.y = np.dot(self.y, self.valid)
         assert(x.shape == self.y.shape)
         return self.y
+    def predict(self,x):
+        return 1.0 / (1.0 + np.exp(-x)) * self.validRate
     def backward(self,dzdy):
         assert(dzdy.shape == self.y.shape)
-        ret = self.y * (1.0 - self.y) * dzdy
+        ret = self.y * (1.0 - self.y) * np.dot(dzdy,self.valid)
         assert(ret.shape == self.y.shape)
         return ret
     
@@ -184,12 +186,14 @@ class CLayerController:
         assert(isinstance(layer,CLayer))
         self.output = layer
     def forward(self,x,y):
-        pre = self.predict(x)
-        return self.output.forward(pre,y)
-    def predict(self,x):
         act = x
         for l in range(len(self.layers)):
             act = self.layers[l].forward(act)
+        return self.output.forward(act,y)
+    def predict(self,x):
+        act = x
+        for l in range(len(self.layers)):
+            act = self.layers[l].predict(act)
         return act
     def predictBinary(self,x,y):
         act = x
@@ -213,12 +217,12 @@ if "__main__" == __name__:
     batchSize = 32
     regu = 0.0#1e-2
     layers = CLayerController()
-    layers.append(CFullConnectlayer(detector,128,regu))
-    layers.append(CReLU())
-    layers.append(CFullConnectlayer(128,32,regu))
-    layers.append(CReLU())
-    layers.append(CFullConnectlayer(32,1,regu))
-    layers.append(CSigmoid())
+    layers.append(CFullConnectlayer(input=detector,output=512,regu=regu,validRate=0.5))
+    layers.append(CReLU(validRate=0.6))
+    layers.append(CFullConnectlayer(input=512,output=512,regu=regu,validRate=0.7))
+    layers.append(CReLU(validRate=0.8))
+    layers.append(CFullConnectlayer(input=512,output=1,regu=regu,validRate=0.9))
+    layers.append(CSigmoid(validRate = 1.0))
     layers.setOut(CSquare())
     
     for epoch in range(100000000000):
@@ -226,9 +230,9 @@ if "__main__" == __name__:
         batchID = np.random.choice(range(sample),batchSize,replace = False)
         loss = layers.forward(trainScore[batchID], trainLabel[batchID])
         layers.backward()
-        if epoch % 100 == 0:
-            print(epoch,loss,end=",")
-            print(mt.CalcAccuracy(layers.predict(testScore),testLabel),end=",")
-            print(mt.CalcROCArea(layers.predict(testScore),testLabel),end=",")
+        if epoch % 10 == 0:
+            print('%06d'%epoch,'%5f'%loss,end=",")
+            print('%3.10f' % (100*mt.CalcAccuracy(layers.predict(testScore),testLabel)),end=",")
+            print('%3.10f' % (100*mt.CalcROCArea(layers.predict(testScore),testLabel)) ,end=",")
             print()
     print("Done.")
