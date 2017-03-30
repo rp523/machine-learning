@@ -6,6 +6,7 @@ import mathtool as mt
 import imgtool as imt
 
 
+
 def SignBinarize(x):
     out = 1*(x >= 0.0) - 1*(x < 0.0)
     assert(out.shape == x.shape)
@@ -85,6 +86,46 @@ class CFullConnectlayer(CLayer):
 
     def OutputParam(self):
         return self.w.Get()
+
+class CMaxPoolingLayer(CLayer):
+    def __init__(self,filterShape,step):
+        assert(np.array(filterShape).ndim == 2)
+        self.fh = np.array(filterShape).shape[0]    # filter height
+        self.fw = np.array(filterShape).shape[1]    # filter width
+        self.step = step
+        pass
+    def forward(self,x):
+        assert(x.ndim >= 2)
+        assert(x.ndim <= 3)
+        self.x_selected = np.zeros(x.shape,float)
+        if x.ndim == 2:
+            inH = x.shape[0]
+            inW = x.shape[1]
+            ouH = int((inH - (self.fh - 1)) / self.step) + 1
+            ouW = int((inW - (self.fw - 1)) / self.step) + 1
+            y = np.zeros(ouH*ouW,float)
+            n = 0
+            for y in range(0, inH - (self.fh - 1), self.step):
+                for x in range(0, inW - (self.fw - 1), self.step):
+                    y[n] = np.max(x[y : y + self.fh, x : x + self.fw])
+                    n += 1
+            assert(n == ouH*ouW)
+        if x.ndim == 3:
+            inH = x.shape[0]
+            inW = x.shape[1]
+            inC = x.shape[2]
+            ouH = int((inH - (self.fh - 1)) / self.step) + 1
+            ouW = int((inW - (self.fw - 1)) / self.step) + 1
+            ouC = inC
+            y = np.zeros(ouH*ouW*ouC,float)
+            n = 0
+            for y in range(0, inH - (self.fh - 1), self.step):
+                for x in range(0, inW - (self.fw - 1), self.step):
+                    for c in range(inC):
+                        y[n] = np.max(x[y : y + self.fh, x : x + self.fw, c])
+                        n += 1
+            assert(n == ouC*ouH*ouW)
+        return y
 
 class CDropOutLayer(CLayer):
     def __init__(self,validRate):
