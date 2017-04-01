@@ -14,23 +14,21 @@ def SignBinarize(x):
 
 class CAdamParam:
     
-    def __init__(self, input, output, eta = 0.001, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8):
+    def __init__(self, input, size, eta = 0.001, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8):
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
         self.eta = eta
-        self.shape = (input,output)
         
-        self.m = np.zeros(self.shape,float)
-        self.v = np.zeros(self.shape,float)
-        self.param = np.random.randn(input,output) / np.sqrt(input)
+        self.m = np.zeros(size,float)
+        self.v = np.zeros(size,float)
         self.beta1Pow = 1.0
         self.beta2Pow = 1.0
+
+        self.param = np.random.randn(size) / np.sqrt(input)
         
     def update(self, grad):
         assert(isinstance(grad,np.ndarray))
-        assert(grad.ndim == 2)
-        assert(self.m.shape == grad.shape)
         self.m = self.beta1 * self.m + (1.0 - self.beta1) * grad
         self.v = self.beta2 * self.v + (1.0 - self.beta1) * grad * grad
         self.beta1Pow *= self.beta1
@@ -63,96 +61,98 @@ class CAffineLayer(CLayer):
     def __initInpl(self,x):
         self.inShape = x[0].shape
         self.inSize = x[0].size
-        self.w = CAdamParam(input=self.inSize,output=self.outSize)  #パラメタは１次元ベクトルの形で確保
+        self.w = CAdamParam(size = self.inSize*self.outSize, input=self.inSize)  #パラメタは１次元ベクトルの形で確保
     
     def forward(self,x):
         if False == self.initOK:
             self.__initInpl(x)
             self.initOK = True
         
-        self.xMat = x.reshape(x.shape[0],self.inSize)  #確認用
+        batch = x.shape[0]
+        self.xMat = x.reshape(batch, -1)  #確認用
         # DropOutのためのフィルタ行列
-        self.yMat = np.dot(self.xMat,self.w.Get())
+        self.yMat = np.dot(self.xMat,self.w.Get().reshape(self.inSize,self.outSize))
 
-        outBatShape = tuple([x.shape[0]] + list(self.outShape))
+        outBatShape = tuple([batch] + list(self.outShape))
         self.y = self.yMat.reshape(outBatShape)
         return self.y
 
     def predict(self,x):
         outBatShape = tuple([x.shape[0]] + list(self.outShape))
-        return np.dot(x.reshape(x.shape[0],self.inSize),self.w.Get())\
+        return np.dot(x.reshape(x.shape[0],self.inSize),self.w.Get().reshape(self.inSize,self.outSize))\
                 .reshape(outBatShape)
         
     def backward(self,dzdy):
-        
-        inBatShape = ([dzdy.shape[0]] + list(self.inShape))
-        dzdyMat = dzdy.reshape(dzdy.shape[0],self.outSize)
+   
+        batch = dzdy.shape[0]     
+        inBatShape = ([batch] + list(self.inShape))
+        dzdyMat = dzdy.reshape(batch, -1)
 
         # 自レイヤー内のパラメタを更新
-        dzdwMat = np.dot(np.transpose(self.xMat), dzdyMat)
-        self.w.update(dzdwMat)
+        dzdwVec = np.dot(np.transpose(self.xMat), dzdyMat).reshape(self.inSize*self.outSize)
+        self.w.update(dzdwVec)
         
         # １つ前のlayerへgradientを伝搬させる
-        dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get()))
+        dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get().reshape(self.inSize,self.outSize)))
         return dzdxMat.reshape(inBatShape)
 
-    def OutputParam(self):
-        return self.w.Get()
-
-class Convolution(CLayer):
-    def __init__(self,outShape,stride,pad=0):
+class CConvolutionLayer(CLayer):
+    def __init__(self,filterShape,stride,pad=0):
         self.initOK = False
-        self.inShape = None
-        self.inSize = None
-        
-        assert(3 == np.array(outShape).ndim)
-        self.outShape = outShape
-        self.outSize = mt.MultipleAll(outShape)
-        self.stride = stride
         self.pad = pad
+        assert(3 == np.array(filterShape).size)
+        self.outC = filterShape[0]  # Output Channel (Not necessarily equals to input channel.)
+        self.fh = filterShape[1]    # Filter Height
+        self.fw = filterShape[2]    # Filter Width
+        self.stride = stride
+        
     def __initInpl(self,x):
-        self.inShape = x[0].shape
-        self.inSize = x[0].size
-        self.w = CAdamParam(input=self.inSize,output=self.outSize)  #パラメタは１次元ベクトルの形で確保
-
+        assert(4 == np.array(x).ndim)
+        batch,self.inC,self.inH,self.inW = x.shape
+        assert(0 == (self.inH + 2 * self.pad - self.fh) % self.stride)
+        assert(0 == (self.inW + 2 * self.pad - self.fw) % self.stride)
+        self.outH = 1 + (self.inH + 2 * self.pad - self.fh) // self.stride
+        self.outW = 1 + (self.inW + 2 * self.pad - self.fw) // self.stride
         
-        # 中間データ（backward時に使用）
-        self.x = None   
-        self.col = None
-        self.col_W = None
+        assert(4 == np.array(x).ndim)
+        batch, self.inC, self.inH, self.inW = x.shape
+        inputNeuron = self.inC * self.inH * self.inW
         
-        # 重み・バイアスパラメータの勾配
-        self.dW = None
-        self.db = None
-
+        self.w = CAdamParam(input=inputNeuron, size=self.outC*self.inC*self.fh*self.fw)
+       
     def forward(self, x):
-        FN, C, FH, FW = self.W.shape
-        N, C, H, W = x.shape
-        out_h = 1 + int((H + 2*self.pad - FH) / self.stride)
-        out_w = 1 + int((W + 2*self.pad - FW) / self.stride)
+        if False == self.initOK:
+            self.__initInpl(x)
+            self.initOK = True
 
-        col = im2col(x, FH, FW, self.stride, self.pad)
-        col_W = self.W.reshape(FN, -1).T
+        batch = x.shape[0]
+        col = mt.im2col(input_data=x,
+                        filter_h=self.fh,
+                        filter_w=self.fw,
+                        stride=self.stride,
+                        pad=self.pad)
+        col_w = self.w.Get().reshape(self.outC, -1).T
 
-        out = np.dot(col, col_W) + self.b
-        out = out.reshape(N, out_h, out_w, -1).transpose(0, 3, 1, 2)
+        out = np.dot(col, col_w)
+        out = out.reshape(batch, self.outH, self.outW, -1).transpose(0, 3, 1, 2)
 
         self.x = x
         self.col = col
-        self.col_W = col_W
+        self.col_w = col_w
 
+        print("out size = ",out.size)
         return out
 
     def backward(self, dout):
-        FN, C, FH, FW = self.W.shape
-        dout = dout.transpose(0,2,3,1).reshape(-1, FN)
 
-        self.db = np.sum(dout, axis=0)
-        self.dW = np.dot(self.col.T, dout)
-        self.dW = self.dW.transpose(1, 0).reshape(FN, C, FH, FW)
+        dout = dout.transpose(0,2,3,1).reshape(-1, self.outC)
+
+        dw = np.dot(self.col.T, dout)
+        dw = self.dW.transpose(1, 0).reshape(self.outC, self.inC, self.fh, self.fw)
+        self.w.update(dw)
 
         dcol = np.dot(dout, self.col_W.T)
-        dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad)
+        dx = mt.col2im(dcol, self.x.shape, self.fh, self.fw, self.stride, self.pad)
 
         return dx
 
@@ -281,34 +281,32 @@ if "__main__" == __name__:
     trainScorePos = np.load("grayINRIA.npz")["TrainPos"]
     trainScoreNeg = np.load("grayINRIA.npz")["TrainNeg"]
     trainScore = np.append(trainScorePos,trainScoreNeg,axis=0)
-    trainScore = trainScore.reshape((trainScore.shape[0],trainScore.shape[1]*trainScore.shape[2]))
     
     testScorePos = np.load("grayINRIA.npz")["TestPos"]
     testScoreNeg = np.load("grayINRIA.npz")["TestNeg"]
     testScore = np.append(testScorePos,testScoreNeg,axis=0)
-    testScore = testScore.reshape((testScore.shape[0],testScore.shape[1]*testScore.shape[2]))
     
     trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
     testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
     
-    sample = trainScore.shape[0]
-    detector = trainScore.shape[1]
-    
-    batchSize = 32
+    n,h,w = trainScore.shape
+    trainScore = trainScore.reshape(n,1,h,w)
+    n,h,w = testScore.shape
+    testScore = testScore.reshape(n,1,h,w)
     
     trainScore /= 255
     testScore /= 255
-    
+    sample = trainScore.shape[0]
+    batchSize = 8
+
+    assert(sample >= batchSize)
     layers = CLayerController()
-    layers.append(CAffineLayer(outShape=(512,)))
+    layers.append(CConvolutionLayer(filterShape=(3,3,3),stride=1))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.6))
-    layers.append(CAffineLayer(outShape=(512,)))
+    layers.append(CAffineLayer(outShape=(64,)))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.7))
-    layers.append(CAffineLayer(outShape=(512,)))
-    layers.append(CReLU())
-    layers.append(CDropOutLayer(validRate=0.8))
     layers.append(CAffineLayer(outShape=(32,)))
     layers.append(CReLU())
     layers.append(CAffineLayer(outShape=(1,)))
