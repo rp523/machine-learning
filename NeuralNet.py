@@ -99,13 +99,22 @@ class CAffineLayer(CLayer):
     def OutputParam(self):
         return self.w.Get()
 
-'''
-class Convolution:
-    def __init__(self,input,output,regu = 0.0):
-        self.W = W
-        self.b = b
+class Convolution(CLayer):
+    def __init__(self,outShape,stride,pad=0):
+        self.initOK = False
+        self.inShape = None
+        self.inSize = None
+        
+        assert(3 == np.array(outShape).ndim)
+        self.outShape = outShape
+        self.outSize = mt.MultipleAll(outShape)
         self.stride = stride
         self.pad = pad
+    def __initInpl(self,x):
+        self.inShape = x[0].shape
+        self.inSize = x[0].size
+        self.w = CAdamParam(input=self.inSize,output=self.outSize)  #パラメタは１次元ベクトルの形で確保
+
         
         # 中間データ（backward時に使用）
         self.x = None   
@@ -146,7 +155,7 @@ class Convolution:
         dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad)
 
         return dx
-'''
+
     
 class CDropOutLayer(CLayer):
     def __init__(self,validRate):
@@ -291,15 +300,18 @@ if "__main__" == __name__:
     testScore /= 255
     
     layers = CLayerController()
-    layers.append(CAffineLayer(outShape=128))
-    layers.append(CReLU())
-    layers.append(CAffineLayer(outShape=128))
+    layers.append(CAffineLayer(outShape=(512,)))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.6))
-    layers.append(CAffineLayer(outShape=32))
+    layers.append(CAffineLayer(outShape=(512,)))
+    layers.append(CReLU())
+    layers.append(CDropOutLayer(validRate=0.7))
+    layers.append(CAffineLayer(outShape=(512,)))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.8))
-    layers.append(CAffineLayer(outShape=1))
+    layers.append(CAffineLayer(outShape=(32,)))
+    layers.append(CReLU())
+    layers.append(CAffineLayer(outShape=(1,)))
     layers.append(CSigmoid())
     layers.setOut(CSquare())
     
