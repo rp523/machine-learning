@@ -19,11 +19,10 @@ class CAdamParam:
         self.beta2 = beta2
         self.epsilon = epsilon
         self.eta = eta
-        self.input = input
-        self.output = output
-
-        self.m = np.zeros((input,output),float)
-        self.v = np.zeros((input,output),float)
+        self.shape = (input,output)
+        
+        self.m = np.zeros(self.shape,float)
+        self.v = np.zeros(self.shape,float)
         self.param = np.random.randn(input,output) / np.sqrt(input)
         self.beta1Pow = 1.0
         self.beta2Pow = 1.0
@@ -54,99 +53,120 @@ class CLayer:
     def backward(self,dzdy):
         print("to be overridden.")
 
-class CFullConnectlayer(CLayer):
-    def __init__(self,input,output,regu = 0.0):
-        self.w = CAdamParam(input = input, output = output)
-        self.regu = regu
-        self.output = output
+class CAffineLayer(CLayer):
+    def __init__(self,outShape):
+        self.initOK = False
+        self.inShape = None
+        self.inSize = None
+        self.outShape = outShape
+        self.outSize = mt.MultipleAll(outShape)
+    def __initInpl(self,x):
+        self.inShape = x[0].shape
+        self.inSize = x[0].size
+        self.w = CAdamParam(input=self.inSize,output=self.outSize)  #パラメタは１次元ベクトルの形で確保
     
     def forward(self,x):
-        self.x = x  #確認用
+        if False == self.initOK:
+            self.__initInpl(x)
+            self.initOK = True
+        
+        self.xMat = x.reshape(x.shape[0],self.inSize)  #確認用
         # DropOutのためのフィルタ行列
-        self.y = np.dot(x,self.w.Get())
+        self.yMat = np.dot(self.xMat,self.w.Get())
+
+        outBatShape = tuple([x.shape[0]] + list(self.outShape))
+        self.y = self.yMat.reshape(outBatShape)
         return self.y
 
     def predict(self,x):
-        return np.dot(x,self.w.Get())
-
-    def backward(self,dzdy):
-
-        dzdw = np.dot(np.transpose(self.x), dzdy)
-        w_buf = self.w.Get()
+        outBatShape = tuple([x.shape[0]] + list(self.outShape))
+        return np.dot(x.reshape(x.shape[0],self.inSize),self.w.Get())\
+                .reshape(outBatShape)
         
-        # １つ前のlayerへgradientを伝搬させる準備
-        dzdx = np.dot(dzdy, np.transpose(self.w.Get()))
-        assert(dzdx.shape == self.x.shape)
+    def backward(self,dzdy):
+        
+        inBatShape = ([dzdy.shape[0]] + list(self.inShape))
+        dzdyMat = dzdy.reshape(dzdy.shape[0],self.outSize)
 
         # 自レイヤー内のパラメタを更新
-        reguGrad = self.regu * w_buf * (1.0 - w_buf * w_buf)
-        self.w.update(dzdw + reguGrad)
+        dzdwMat = np.dot(np.transpose(self.xMat), dzdyMat)
+        self.w.update(dzdwMat)
         
-        return dzdx
+        # １つ前のlayerへgradientを伝搬させる
+        dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get()))
+        return dzdxMat.reshape(inBatShape)
 
     def OutputParam(self):
         return self.w.Get()
 
-class CMaxPoolingLayer(CLayer):
-    def __init__(self,filterShape,step):
-        assert(np.array(filterShape).ndim == 2)
-        self.fh = np.array(filterShape).shape[0]    # filter height
-        self.fw = np.array(filterShape).shape[1]    # filter width
-        self.step = step
-        pass
-    def forward(self,x):
-        assert(x.ndim >= 2)
-        assert(x.ndim <= 3)
-        self.x_selected = np.zeros(x.shape,float)
-        if x.ndim == 2:
-            inH = x.shape[0]
-            inW = x.shape[1]
-            ouH = int((inH - (self.fh - 1)) / self.step) + 1
-            ouW = int((inW - (self.fw - 1)) / self.step) + 1
-            y = np.zeros(ouH*ouW,float)
-            n = 0
-            for y in range(0, inH - (self.fh - 1), self.step):
-                for x in range(0, inW - (self.fw - 1), self.step):
-                    y[n] = np.max(x[y : y + self.fh, x : x + self.fw])
-                    n += 1
-            assert(n == ouH*ouW)
-        if x.ndim == 3:
-            inH = x.shape[0]
-            inW = x.shape[1]
-            inC = x.shape[2]
-            ouH = int((inH - (self.fh - 1)) / self.step) + 1
-            ouW = int((inW - (self.fw - 1)) / self.step) + 1
-            ouC = inC
-            y = np.zeros(ouH*ouW*ouC,float)
-            n = 0
-            for y in range(0, inH - (self.fh - 1), self.step):
-                for x in range(0, inW - (self.fw - 1), self.step):
-                    for c in range(inC):
-                        y[n] = np.max(x[y : y + self.fh, x : x + self.fw, c])
-                        n += 1
-            assert(n == ouC*ouH*ouW)
-        return y
+'''
+class Convolution:
+    def __init__(self,input,output,regu = 0.0):
+        self.W = W
+        self.b = b
+        self.stride = stride
+        self.pad = pad
+        
+        # 中間データ（backward時に使用）
+        self.x = None   
+        self.col = None
+        self.col_W = None
+        
+        # 重み・バイアスパラメータの勾配
+        self.dW = None
+        self.db = None
 
+    def forward(self, x):
+        FN, C, FH, FW = self.W.shape
+        N, C, H, W = x.shape
+        out_h = 1 + int((H + 2*self.pad - FH) / self.stride)
+        out_w = 1 + int((W + 2*self.pad - FW) / self.stride)
+
+        col = im2col(x, FH, FW, self.stride, self.pad)
+        col_W = self.W.reshape(FN, -1).T
+
+        out = np.dot(col, col_W) + self.b
+        out = out.reshape(N, out_h, out_w, -1).transpose(0, 3, 1, 2)
+
+        self.x = x
+        self.col = col
+        self.col_W = col_W
+
+        return out
+
+    def backward(self, dout):
+        FN, C, FH, FW = self.W.shape
+        dout = dout.transpose(0,2,3,1).reshape(-1, FN)
+
+        self.db = np.sum(dout, axis=0)
+        self.dW = np.dot(self.col.T, dout)
+        self.dW = self.dW.transpose(1, 0).reshape(FN, C, FH, FW)
+
+        dcol = np.dot(dout, self.col_W.T)
+        dx = col2im(dcol, self.x.shape, FH, FW, self.stride, self.pad)
+
+        return dx
+'''
+    
 class CDropOutLayer(CLayer):
     def __init__(self,validRate):
         assert(validRate <= 1.0)
+        assert(validRate >= 0.0)
         self.validRate = validRate
     def forward(self,x):
-        # DropOutのためのフィルタ行列
-        self.valid = np.diag(1*(np.random.rand(x.shape[1]) < self.validRate))
-        return np.dot(x, self.valid)
+        # DropOutのためのフィルタ行列を生成
+        self.validMat = np.diag(np.random.rand(x[0].size) < self.validRate)
+        xMat = x.reshape((x.shape[0],x[0].size))
+        yMat = np.dot(xMat, self.validMat)
+        y = yMat.reshape(x.shape)
+        return y
     def predict(self,x):
         return x * self.validRate
     def backward(self,dzdy):
-        return np.dot(dzdy,self.valid)
-
-class CSTE(CLayer):
-    def __init__(self):
-        pass
-    def forward(self,x):
-        return SignBinarize(x)
-    def backward(self,dzdy):
-        return (dzdy < 1) * (dzdy > -1) * dzdy
+        dzdyMat = dzdy.reshape((dzdy.shape[0],dzdy[0].size))
+        dzdxMat = np.dot(dzdyMat,self.validMat)
+        dzdx = dzdxMat.reshape(dzdy.shape)
+        return dzdx
 
 class CReLU(CLayer):
     def __init__(self):
@@ -157,6 +177,7 @@ class CReLU(CLayer):
     def predict(self,x):
         return x * (x > 0.0)
     def backward(self,dzdy):
+        assert(dzdy.shape == self.valid.shape)
         return dzdy * self.valid
 
 class CSigmoid(CLayer):
@@ -164,14 +185,12 @@ class CSigmoid(CLayer):
         pass
     def forward(self,x):
         self.y = 1.0 / (1.0 + np.exp(-x))
-        assert(x.shape == self.y.shape)
         return self.y
     def predict(self,x):
         return 1.0 / (1.0 + np.exp(-x))
     def backward(self,dzdy):
         assert(dzdy.shape == self.y.shape)
         ret = self.y * (1.0 - self.y) * dzdy
-        assert(ret.shape == self.y.shape)
         return ret
     
 class CSquare(CLayer):
@@ -272,15 +291,15 @@ if "__main__" == __name__:
     testScore /= 255
     
     layers = CLayerController()
-    layers.append(CFullConnectlayer(input=detector,output=128))
+    layers.append(CAffineLayer(outShape=128))
     layers.append(CReLU())
-    layers.append(CFullConnectlayer(input=128,output=128))
+    layers.append(CAffineLayer(outShape=128))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.6))
-    layers.append(CFullConnectlayer(input=128,output=32))
+    layers.append(CAffineLayer(outShape=32))
     layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.8))
-    layers.append(CFullConnectlayer(input=32,output=1))
+    layers.append(CAffineLayer(outShape=1))
     layers.append(CSigmoid())
     layers.setOut(CSquare())
     
