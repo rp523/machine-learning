@@ -213,7 +213,71 @@ class CPoolingLayer(CLayer):
         
         return dx
 
-    
+
+class CBatchNormLayer(CLayer):
+    def __init__(self, gamma, beta, moment=0.9):
+        self.gamma = gamma
+        self.beta = beta
+        self.moment = moment
+        self.initOK = None
+    def __initInpl(self,x):
+        self.inShape = x[0].shape
+        self.inSize = x[0].size
+        #パラメタは１次元ベクトルの形で確保
+        self.m = np.zeros(self.inShape)
+        self.v = np.zeros(self.inShape)
+        
+    def forward(self, x):
+        if not self.initOK:
+            self.__initInpl(x)
+            self.initOK = True
+
+        self.input_shape = x.shape
+        out = self.__forward(x, True)
+        return out.reshape(*self.input_shape)
+    def predict(self, x):
+        self.input_shape = x.shape
+        out = self.__forward(x, False)
+        return out.reshape(*self.input_shape)
+            
+    def __forward(self, x, train_flg):
+
+        if train_flg:
+            m = x.mean(axis=0).reshape(self.inShape)
+            self.xc = x - m  # centered
+            v = np.mean(self.xc**2, axis=0)
+            self.std = np.sqrt(v + 10e-7)
+            self.xn = self.xc / self.std   # normalized
+            
+            self.m = self.moment * self.m + (1-self.moment) * m
+            self.v = self.moment * self.v + (1-self.moment) * v
+        else:
+            xc = x - self.m
+            self.xn = xc / ((np.sqrt(self.v + 10e-7)))
+            
+        out = self.gamma * self.xn + self.beta 
+        return out
+
+    def backward(self, dout):
+        dx = self.__backward(dout)
+        dx = dx.reshape(*self.input_shape)
+        return dx
+
+    def __backward(self, dout):
+        batch = dout.shape[0]
+        dbeta = dout.sum(axis=0).reshape(self.inShape)
+        dgamma = np.sum(self.xn * dout, axis=0).reshape(self.inShape)
+        dxn = self.gamma * dout
+        dxc = dxn / self.std
+        dstd = -np.sum((dxn * self.xc) / (self.std * self.std), axis=0)
+        dvar = 0.5 * dstd / self.std
+        dxc += (2.0 / batch) * self.xc * dvar
+        dmu = np.sum(dxc, axis=0)
+        dx = dxc - dmu / batch
+        return dx
+
+
+
 class CDropOutLayer(CLayer):
     def __init__(self,validRate):
         assert(validRate <= 1.0)
@@ -373,6 +437,7 @@ if "__main__" == __name__:
     assert(sample >= batchSize)
     layers = CLayerController()
     layers.append(CConvolutionLayer(filterShape=(32,5,5),stride=1))
+    layers.append(CBatchNormLayer(gamma=1.0,beta=0.0))
     layers.append(CPoolingLayer(shape=(3,3),stride=3))
     layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CConvolutionLayer(filterShape=(32,1,1),stride=1))
