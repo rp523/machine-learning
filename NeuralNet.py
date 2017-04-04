@@ -14,7 +14,7 @@ def SignBinarize(x):
 
 class CAdamParam:
     
-    def __init__(self, input, size, eta = 1e-2, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8):
+    def __init__(self, input, size, eta = 1e-2, beta1 = 0.9, beta2 = 0.999, epsilon = 10e-8, zeroInit=None):
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
@@ -25,7 +25,10 @@ class CAdamParam:
         self.beta1Pow = 1.0
         self.beta2Pow = 1.0
 
-        self.param = np.random.randn(size) / np.sqrt(input)
+        if zeroInit:
+            self.param = np.zeros(size)
+        else:
+            self.param = np.random.randn(size) / np.sqrt(input)
         
     def update(self, grad):
         assert(isinstance(grad,np.ndarray))
@@ -101,6 +104,52 @@ class CAffineLayer(CLayer):
         # １つ前のlayerへgradientを伝搬させる
         dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get().reshape(self.inSize,self.outSize)))
         return dzdxMat.reshape(inBatShape)
+
+class CHistoLayer(CLayer):
+    def __init__(self,bin,cost=1e-3):
+        self.initOK = False
+        self.inShape = None
+        self.inSize = None
+        self.bin = bin
+        self.cost = cost
+    def __initInpl(self,x):
+        self.inShape = x[0].shape
+        self.inSize = x[0].size
+        #パラメタは１次元ベクトルの形で確保
+        self.w = CAdamParam(size = self.inSize*self.bin, input=self.inSize, zeroInit=True)  
+    
+    def forward(self,x):
+        if False == self.initOK:
+            self.__initInpl(x)
+            self.initOK = True
+        
+        batch = x.shape[0]
+        xbin = np.array(x * self.bin).astype(np.int)
+        xbin = xbin * (xbin < self.bin) + (xbin >= self.bin) * (self.bin - 1)
+
+        self.onehot = np.zeros((batch,self.inSize,self.bin),int)
+        for ba in range(batch):
+            b = np.zeros((self.inSize,self.bin))
+            b[np.arange(self.inSize),xbin[ba]] = 1
+            self.onehot[ba] = b
+        
+        w = self.w.Get().reshape(self.inSize,self.bin)
+        wbatch = np.zeros((batch,self.inSize,self.bin),float)
+        wbatch[:] = w
+        y = np.sum(wbatch * self.onehot, axis = 2)
+        assert(y.shape == (batch,self.inSize))
+#        y = np.array([np.sum(y, axis = 1)]).T
+ #       assert(y.shape == (batch,1))
+        return y
+
+    def predict(self,x):
+        return self.forward(x)
+        
+    def backward(self,dzdy):
+        onehotT = self.onehot.transpose(2,0,1)
+        onehotT = onehotT * dzdy
+        dw = np.sum(onehotT.transpose(2,0,1),axis=0).flatten()
+        self.w.update(dw + self.cost * self.w.Get())
 
 class CConvolutionLayer(CLayer):
     def __init__(self,filterShape,stride,pad=0):
@@ -405,6 +454,7 @@ class CLayerController:
 
 if "__main__" == __name__:
     
+    '''
     trainScorePos = np.load("grayINRIA.npz")["TrainPos"]
     trainScoreNeg = np.load("grayINRIA.npz")["TrainNeg"]
     trainScore = np.append(trainScorePos,trainScoreNeg,axis=0)
@@ -415,8 +465,7 @@ if "__main__" == __name__:
     
     trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
     testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
-    
-    sample = trainScore.shape[0]
+
     shrink = 4
     n,h,w = trainScore.shape
     trainScore = trainScore.reshape(n,h//shrink,shrink,w//shrink,shrink).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
@@ -432,10 +481,20 @@ if "__main__" == __name__:
     
     trainScore /= 255
     testScore /= 255
+    '''
+
+    trainScore = np.asarray(sio.loadmat("Train.mat")["trainScore"])
+    trainLabel = np.asarray(sio.loadmat("Train.mat")["trainLabel"])[0]
+    testScore = np.asarray(sio.loadmat("Test.mat")["testScore"])
+    testLabel = np.asarray(sio.loadmat("Test.mat")["testLabel"])[0]
+    
+    sample = trainScore.shape[0]
     batchSize = 64
 
     assert(sample >= batchSize)
     layers = CLayerController()
+    layers.append(CHistoLayer(bin=32))
+    '''
     layers.append(CConvolutionLayer(filterShape=(32,5,5),stride=1))
     layers.append(CBatchNormLayer(gamma=1.0,beta=0.0))
     layers.append(CPoolingLayer(shape=(3,3),stride=3))
@@ -445,12 +504,14 @@ if "__main__" == __name__:
     layers.append(CAffineLayer(outShape=(512,)))
     layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CAffineLayer(outShape=(1,)))
-    layers.append(CSigmoid())
-    layers.setOut(CSquare())
+    '''
+    layers.append(CDropOutLayer(validRate=0.8))
+    layers.append(CAffineLayer(outShape=(1,)))
+    layers.setOut(CSquareHinge())
     
     for epoch in range(100000000000):
 
-        batchID = np.random.choice(range(sample),batchSize,replace = False)
+        batchID = np.random.choice(range(sample),batchSize,replace = True)
         loss = layers.forward(trainScore[batchID], trainLabel[batchID])
         layers.backward()
         if epoch % 100 == 0:
