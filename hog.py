@@ -164,59 +164,23 @@ class CHog:
 
         return self.__feature
 
-    def __WideProb(self,x):
-        return x
-        
-        #return 1 - (x-1)**2
-        '''bin = 16
-        prob = np.zeros(bin,float)
-        cum  = np.zeros(bin,float)
-        for b in range(bin):
-            prob[b] = np.power(b/bin,0.5*(8-1))
-        cum[0] = prob[0]
-        for b in range(bin-1):
-            cum[b+1] = cum[b] + prob[b]
-        cum = np.sum(cum)
-        return cum(int(x/bin))
-        '''
-        
     def __Normalize(self):
  
-        ret = np.empty((0))
+        ret = np.empty((0,self.__hogParam.bin*self.__hogParam.blockY*self.__hogParam.blockX))
                
         for by in range(0,self.__hogParam.cellY - self.__hogParam.blockY + 1):
             for bx in range(0,self.__hogParam.cellX - self.__hogParam.blockX + 1):
                 
                 # ブロックごとに正規化するためのノルム計算
-                blockNorm = 0.0
-                for cy in range(by, by + self.__hogParam.blockY):
-                    for cx in range(bx, bx + self.__hogParam.blockX):
-                        blockNorm = blockNorm + self.__normMap[cy,cx] * self.__normMap[cy,cx]
-                blockNorm = np.sqrt(blockNorm)
-                
-                for cy in range(by, by + self.__hogParam.blockY):
-                    for cx in range(bx, bx + self.__hogParam.blockX):
-                        for b in range(0, self.__hogParam.bin):
-                            
-                            # ゼロ割回避
-                            normalizedFeature = 0.0
-                            if 0.0 != blockNorm:
-                                normalizedFeature = self.__binMap[cy,cx,b] / blockNorm
-                            
-                            normalizedFeature = self.__WideProb(normalizedFeature)
-                            '''                                
-                            if normalizedFeature <= 0.5:
-                                coef = [4.71075112e-02, 1.90293064e+00, -3.65323112e+01, 3.13252019e+02, -1.38217473e+03, 3.54164057e+03, -5.28482539e+03, 4.26577859e+03, -1.43923189e+03]
-                            else:
-                                coef = [-62.66652944,   248.20333923,   -249.09550727,   -133.37201271,  194.14734653,    410.70809106,   -755.83180409,   436.26908686,   -87.36176884]
-                            normalizedFeature = mt.CalcPoly(np.array(coef), normalizedFeature * normalizedFeature)
-                            if normalizedFeature < 0.0:
-                                normalizedFeature = 0.0
-                            elif normalizedFeature > 1.0:
-                                normalizedFeature = 1.0
-                            '''
-                            ret = np.append(ret, normalizedFeature )
-        return ret
+                blockNorm = np.sqrt(np.sum( self.__normMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX] * \
+                                    self.__normMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX] ))
+
+                if blockNorm != 0.0:
+                    ret = np.append(ret,[(self.__binMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX,:] / blockNorm).flatten()],axis = 0)
+                else:
+                    ret = np.append(ret,np.zeros((1,self.__hogParam.bin*self.__hogParam.blockY*self.__hogParam.blockX)),axis = 0)
+
+        return ret.flatten()
 
     def GetFeatureLength(self):
         noJoint =  ( self.__hogParam.cellY - self.__hogParam.blockY + 1 ) * \
