@@ -43,7 +43,7 @@ def DrawROC(finalScore,label):
     plt.plot([0,1],[0,1])   # 基準線 y=x
     plt.xlim(0,1)
     plt.ylim(0,1)
-    plt.title("ROC Curve: accuracy=" + str(format(accuracy,'.3f')) + ",area=" + str(format(area,'.3f')))
+    plt.title("ROC Curve: accuracy=" + str(format(accuracy,'.4f')) + ",area=" + str(format(area,'.4f')))
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.show()
