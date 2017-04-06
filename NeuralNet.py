@@ -174,7 +174,9 @@ class CHistoLayer(CLayer):
         onehotT = onehotT * dzdy
         dw = np.sum(onehotT.transpose(1,2,0),axis=0).flatten()
         self.w.update(dw + self.cost * self.w.Get())
-
+        
+        return dzdy
+        
 class CConvolutionLayer(CLayer):
     def __init__(self,filterShape,stride,pad=0):
         self.initOK = False
@@ -535,6 +537,8 @@ if "__main__" == __name__:
 
     assert(sample >= batchSize)
     layers = CLayerController()
+    layers.append(CHistoLayer(bin=32))
+    layers.append(CSigmoid())
     layers.append(CHistoLayer(bin=32))
     layers.append(CSimpleSumLayer())
     layers.setOut(CExponentialLoss())
