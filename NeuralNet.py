@@ -129,7 +129,7 @@ class CSimpleSumLayer(CLayer):
     def backward(self,dzdy):
    
         batch = dzdy.shape[0]
-        dx = np.dot(dzdy, np.ones((1,self.inSize),float))
+        dx = np.dot(dzdy.reshape(batch,-1), np.ones((1,self.inSize),float))
         assert(dx.shape == (batch,self.inSize))
         return dx
 
@@ -447,6 +447,23 @@ class CSquareHinge(CLayer):
         assert(dydx.shape == self.x.shape)
         return dydx
 
+class CExponentialLoss(CLayer):
+    def __init__(self):
+        pass
+    def forward(self,x,label):  
+        assert(label.size == x.shape[0])
+        self.x = x
+        self.label = label
+        self.xv = x.flatten()
+        
+        self.expArray = np.exp(- self.xv * self.label) 
+        return np.sum(self.expArray)
+    
+    def backward(self):
+
+        # １つ前のlayerへgradientを伝搬させる
+        return - self.label * self.expArray
+
 class CLayerController:
     def __init__(self):
         self.layers = []
@@ -478,7 +495,6 @@ class CLayerController:
 
 if "__main__" == __name__:
     
-    '''
     trainScorePos = np.load("grayINRIA.npz")["TrainPos"]
     trainScoreNeg = np.load("grayINRIA.npz")["TrainNeg"]
     trainScore = np.append(trainScorePos,trainScoreNeg,axis=0)
@@ -511,18 +527,17 @@ if "__main__" == __name__:
     trainLabel = np.asarray(sio.loadmat("Train.mat")["trainLabel"])[0]
     testScore = np.asarray(sio.loadmat("Test.mat")["testScore"])
     testLabel = np.asarray(sio.loadmat("Test.mat")["testLabel"])[0]
+    
+    '''
+    
     sample = trainScore.shape[0]
-    
-    trainScore = trainScore.reshape(trainScore.shape[0],12,6,8).transpose(0,3,1,2)
-    testScore = testScore.reshape(testScore.shape[0],12,6,8).transpose(0,3,1,2)
-    
     batchSize = 64
 
     assert(sample >= batchSize)
     layers = CLayerController()
     layers.append(CHistoLayer(bin=32))
     layers.append(CSimpleSumLayer())
-    layers.setOut(CSquare())
+    layers.setOut(CExponentialLoss())
     '''
     layers.append(CConvolutionLayer(filterShape=(32,5,5),stride=1))
     layers.append(CBatchNormLayer(gamma=1.0,beta=0.0))
