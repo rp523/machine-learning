@@ -105,8 +105,36 @@ class CAffineLayer(CLayer):
         dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get().reshape(self.inSize,self.outSize)))
         return dzdxMat.reshape(inBatShape)
 
+class CSimpleSumLayer(CLayer):
+    def __init__(self):
+        self.initOK = None
+        self.inShape = None
+        self.inSize = None
+    def __initInpl(self,x):
+        self.inShape = x[0].shape
+        self.inSize = x[0].size
+    
+    def forward(self,x):
+        if not self.initOK:
+            self.__initInpl(x)
+            self.initOK = True
+        
+        batch = x.shape[0]
+        xMat = x.reshape(batch, -1)  #確認用
+        return np.sum(xMat,axis=1).reshape((-1,1))
+
+    def predict(self,x):
+        return self.forward(x)
+        
+    def backward(self,dzdy):
+   
+        batch = dzdy.shape[0]
+        dx = np.dot(dzdy, np.ones((1,self.inSize),float))
+        assert(dx.shape == (batch,self.inSize))
+        return dx
+
 class CHistoLayer(CLayer):
-    def __init__(self,bin,cost=1e-3):
+    def __init__(self,bin,cost=0.0):
         self.initOK = False
         self.inShape = None
         self.inSize = None
@@ -124,22 +152,18 @@ class CHistoLayer(CLayer):
             self.initOK = True
         
         batch = x.shape[0]
-        xbin = np.array(x * self.bin).astype(np.int)
+        xbin = np.array(x * self.bin).astype(np.int).reshape(batch, self.inSize)
         xbin = xbin * (xbin < self.bin) + (xbin >= self.bin) * (self.bin - 1)
 
         self.onehot = np.zeros((batch,self.inSize,self.bin),int)
         for ba in range(batch):
-            b = np.zeros((self.inSize,self.bin))
-            b[np.arange(self.inSize),xbin[ba]] = 1
-            self.onehot[ba] = b
+            self.onehot[ba,np.arange(self.inSize),xbin[ba]] = 1
         
         w = self.w.Get().reshape(self.inSize,self.bin)
         wbatch = np.zeros((batch,self.inSize,self.bin),float)
         wbatch[:] = w
         y = np.sum(wbatch * self.onehot, axis = 2)
         assert(y.shape == (batch,self.inSize))
-#        y = np.array([np.sum(y, axis = 1)]).T
- #       assert(y.shape == (batch,1))
         return y
 
     def predict(self,x):
@@ -148,7 +172,7 @@ class CHistoLayer(CLayer):
     def backward(self,dzdy):
         onehotT = self.onehot.transpose(2,0,1)
         onehotT = onehotT * dzdy
-        dw = np.sum(onehotT.transpose(2,0,1),axis=0).flatten()
+        dw = np.sum(onehotT.transpose(1,2,0),axis=0).flatten()
         self.w.update(dw + self.cost * self.w.Get())
 
 class CConvolutionLayer(CLayer):
@@ -407,7 +431,7 @@ class CSquareHinge(CLayer):
         assert(label.size == x.shape[0])
         self.x = x
         self.label = label
-        self.xv = np.transpose(self.x)[0]
+        self.xv = self.x.flatten()
         assert(self.label.shape == self.xv.shape)
 
         return 0.5 * np.average(\
@@ -487,13 +511,18 @@ if "__main__" == __name__:
     trainLabel = np.asarray(sio.loadmat("Train.mat")["trainLabel"])[0]
     testScore = np.asarray(sio.loadmat("Test.mat")["testScore"])
     testLabel = np.asarray(sio.loadmat("Test.mat")["testLabel"])[0]
-    
     sample = trainScore.shape[0]
+    
+    trainScore = trainScore.reshape(trainScore.shape[0],12,6,8).transpose(0,3,1,2)
+    testScore = testScore.reshape(testScore.shape[0],12,6,8).transpose(0,3,1,2)
+    
     batchSize = 64
 
     assert(sample >= batchSize)
     layers = CLayerController()
     layers.append(CHistoLayer(bin=32))
+    layers.append(CSimpleSumLayer())
+    layers.setOut(CSquare())
     '''
     layers.append(CConvolutionLayer(filterShape=(32,5,5),stride=1))
     layers.append(CBatchNormLayer(gamma=1.0,beta=0.0))
@@ -505,9 +534,6 @@ if "__main__" == __name__:
     layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CAffineLayer(outShape=(1,)))
     '''
-    layers.append(CDropOutLayer(validRate=0.8))
-    layers.append(CAffineLayer(outShape=(1,)))
-    layers.setOut(CSquareHinge())
     
     for epoch in range(100000000000):
 
