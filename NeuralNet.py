@@ -4,6 +4,7 @@ import fileIO as fio
 import scipy.io as sio
 import mathtool as mt
 import imgtool as imt
+from pip._vendor.requests.packages.chardet.codingstatemachine import CodingStateMachine
 
 
 
@@ -391,7 +392,7 @@ class CReLU(CLayer):
         assert(dzdy.shape == self.valid.shape)
         return dzdy * self.valid
 
-class CSigmoid(CLayer):
+class CLogistic(CLayer):
     def __init__(self):
         pass
     def forward(self,x):
@@ -404,14 +405,27 @@ class CSigmoid(CLayer):
         ret = self.y * (1.0 - self.y) * dzdy
         return ret
     
+class CTanh(CLayer):
+    def __init__(self):    
+        pass
+    def forward(self,x):
+        self.y = self.predict(x)
+        return self.y
+    def predict(self,x):
+        return np.tanh(x)
+    def backward(self,dzdy):
+        assert(dzdy.shape == self.y.shape)
+        ret = (1.0 - self.y * self.y) * dzdy
+        return ret
+    
 class CSquare(CLayer):
     def __init__(self):
         pass
     def forward(self,x,label):  
         assert(label.size == x.shape[0])
-        self.x = x
         self.label = label
-        self.xv = np.transpose(self.x)[0]
+        self.x = x
+        self.xv = x.flatten()
         assert(self.label.shape == self.xv.shape)
 
         return 0.5 * np.average(((self.xv - self.label)**2))
@@ -419,8 +433,30 @@ class CSquare(CLayer):
     def backward(self):
 
         # １つ前のlayerへgradientを伝搬させる
-        dydx = self.xv - self.label
+        dydx = (self.xv * self.label - 1.0) * self.label
         dydx /= self.xv.size
+        dydx = np.transpose([dydx])
+
+        assert(dydx.shape == self.x.shape)
+        return dydx
+
+class CHinge(CLayer):
+    def __init__(self):
+        pass
+    def forward(self,x,label):  
+        assert(label.size == x.shape[0])
+        self.label = label
+        self.x = x
+        self.xv = x.flatten()
+        assert(self.label.shape == self.xv.shape)
+
+        return 0.5 * np.average(((self.xv - self.label)**2))
+
+    def backward(self):
+
+        # １つ前のlayerへgradientを伝搬させる
+        dydx = (1.0 > self.xv * self.label) * (- self.label)
+        dydx = dydx / self.xv.size
         dydx = np.transpose([dydx])
 
         assert(dydx.shape == self.x.shape)
@@ -442,8 +478,8 @@ class CSquareHinge(CLayer):
         
     def backward(self):
 
-        dydx = (self.label ==  1) * (self.xv <   1) * (self.xv - 1) +\
-               (self.label == -1) * (self.xv >  -1) * (self.xv + 1)
+        dydx = (self.label > 0) * (self.xv <  1) * (self.xv - 1) +\
+               (self.label < 0) * (self.xv > -1) * (self.xv + 1)
         dydx /= self.xv.size
         dydx = np.transpose([dydx])
         assert(dydx.shape == self.x.shape)
@@ -464,7 +500,24 @@ class CExponentialLoss(CLayer):
     def backward(self):
 
         # １つ前のlayerへgradientを伝搬させる
-        return - self.label * self.expArray
+        return (- self.label * self.expArray).reshape(-1,1)
+
+class CExponentialSparseLoss(CLayer):
+    def __init__(self):
+        pass
+    def forward(self,x,label):  
+        assert(label.size == x.shape[0])
+        self.x = x
+        self.label = label
+        self.xv = x.flatten()
+        
+        self.expArray = np.exp(- self.xv * self.label) 
+        return np.sum(self.expArray)
+    
+    def backward(self):
+
+        # １つ前のlayerへgradientを伝搬させる
+        return (1 > self.label * self.xv) * (- self.label * self.expArray)
 
 class CLayerController:
     def __init__(self):
@@ -508,13 +561,14 @@ if "__main__" == __name__:
     trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
     testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
 
-    shrink = 4
+    shrinkX = 2
+    shrinkY = 4
     n,h,w = trainScore.shape
-    trainScore = trainScore.reshape(n,h//shrink,shrink,w//shrink,shrink).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
+    trainScore = trainScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
     n,h,w = testScore.shape
-    testScore = testScore.reshape(n,h//shrink,shrink,w//shrink,shrink).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
+    testScore = testScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
     
-    #imt.ndarray2PILimg(trainScore[0]).resize((200,400)).show();exit()
+#    imt.ndarray2PILimg(trainScore[0]).resize((400,400)).show();exit()
     
     n,h,w = trainScore.shape
     trainScore = trainScore.reshape(n,1,h,w)
@@ -526,33 +580,34 @@ if "__main__" == __name__:
     '''
 
     trainScore = np.asarray(sio.loadmat("Train.mat")["trainScore"])
-    trainLabel = np.asarray(sio.loadmat("Train.mat")["trainLabel"])[0]
+    trainLabel = np.asarray(sio.loadmat("Train.mat")["trainLabel"]).flatten()
     testScore = np.asarray(sio.loadmat("Test.mat")["testScore"])
-    testLabel = np.asarray(sio.loadmat("Test.mat")["testLabel"])[0]
-    
+    testLabel = np.asarray(sio.loadmat("Test.mat")["testLabel"]).flatten()
     '''
+    
     
     sample = trainScore.shape[0]
     batchSize = 64
 
     assert(sample >= batchSize)
     layers = CLayerController()
-    layers.append(CHistoLayer(bin=32))
-    layers.append(CSigmoid())
-    layers.append(CHistoLayer(bin=32))
-    layers.append(CSimpleSumLayer())
-    layers.setOut(CExponentialLoss())
-    '''
-    layers.append(CConvolutionLayer(filterShape=(32,5,5),stride=1))
-    layers.append(CBatchNormLayer(gamma=1.0,beta=0.0))
-    layers.append(CPoolingLayer(shape=(3,3),stride=3))
+    layers.append(CConvolutionLayer(filterShape=(6,5,5),stride=1))
+    layers.append(CPoolingLayer(shape=(2,2),stride=2))
+    layers.append(CTanh())
     layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CConvolutionLayer(filterShape=(32,1,1),stride=1))
+    layers.append(CConvolutionLayer(filterShape=(16,5,5),stride=1))
+    layers.append(CPoolingLayer(shape=(2,2),stride=2))
     layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CAffineLayer(outShape=(512,)))
+    layers.append(CTanh())
+    layers.append(CAffineLayer(outShape=(120,)))
     layers.append(CDropOutLayer(validRate=0.5))
+    layers.append(CTanh())
+    layers.append(CAffineLayer(outShape=(84,)))
+    layers.append(CDropOutLayer(validRate=0.5))
+    layers.append(CTanh())
     layers.append(CAffineLayer(outShape=(1,)))
-    '''
+    layers.append(CTanh())
+    layers.setOut(CExponentialLoss())
     
     for epoch in range(100000000000):
 
