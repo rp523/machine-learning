@@ -56,12 +56,13 @@ class CLayer:
         print("to be overridden.")
 
 class CAffineLayer(CLayer):
-    def __init__(self,outShape):
+    def __init__(self,outShape,cost=0.0):
         self.initOK = False
         self.inShape = None
         self.inSize = None
         self.outShape = outShape
         self.outSize = mt.MultipleAll(outShape)
+        self.cost = cost
     def __initInpl(self,x):
         self.inShape = x[0].shape
         self.inSize = x[0].size
@@ -98,9 +99,9 @@ class CAffineLayer(CLayer):
 
         # 自レイヤー内のパラメタを更新
         dzdwVec = np.dot(self.xMat.T, dzdyMat).reshape(self.inSize*self.outSize)
-        self.w.update(dzdwVec)
+        self.w.update(dzdwVec + self.cost * self.w.Get())
         db = np.sum(dzdyMat,axis=0).flatten()
-        self.b.update(db)
+        self.b.update(db)   # バイアスにはWeightDecayを使わない
         
         # １つ前のlayerへgradientを伝搬させる
         dzdxMat = np.dot(dzdyMat, np.transpose(self.w.Get().reshape(self.inSize,self.outSize)))
@@ -179,7 +180,7 @@ class CHistoLayer(CLayer):
         return dzdy
         
 class CConvolutionLayer(CLayer):
-    def __init__(self,filterShape,stride,pad=0):
+    def __init__(self,filterShape,stride,pad=0,cost=0.0):
         self.initOK = False
         self.pad = pad
         assert(3 == np.array(filterShape).size)
@@ -187,12 +188,13 @@ class CConvolutionLayer(CLayer):
         self.fh = filterShape[1]    # Filter Height
         self.fw = filterShape[2]    # Filter Width
         self.stride = stride
+        self.cost = cost
         
     def __initInpl(self,x):
         assert(4 == np.array(x).ndim)
         batch,self.inC,self.inH,self.inW = x.shape
-#        assert(0 == (self.inH + 2 * self.pad - self.fh) % self.stride)
-#        assert(0 == (self.inW + 2 * self.pad - self.fw) % self.stride)
+        assert(0 == (self.inH + 2 * self.pad - self.fh) % self.stride)
+        assert(0 == (self.inW + 2 * self.pad - self.fw) % self.stride)
         self.outH = 1 + (self.inH + 2 * self.pad - self.fh) // self.stride
         self.outW = 1 + (self.inW + 2 * self.pad - self.fw) // self.stride
         
@@ -235,9 +237,9 @@ class CConvolutionLayer(CLayer):
 
         dw = np.dot(self.col.T, dout)
         dw = dw.transpose(1, 0).reshape(self.outC, self.inC, self.fh, self.fw)
-        self.w.update(dw.flatten())
+        self.w.update(dw.flatten() + self.cost * self.w.Get())
         db = np.sum(dout, axis=0).flatten()
-        self.b.update(db)
+        self.b.update(db + self.cost * self.b.Get())
         
         dcol = np.dot(dout, self.col_w.T)
         dx = mt.col2im(dcol, self.x.shape, self.fh, self.fw, self.stride, self.pad)
@@ -585,8 +587,8 @@ if "__main__" == __name__:
     trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
     testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
 
-    shrinkX = 1
-    shrinkY = 1
+    shrinkX = 4
+    shrinkY = 4
     n,h,w = trainScore.shape
     trainScore = trainScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
     n,h,w = testScore.shape
@@ -615,35 +617,26 @@ if "__main__" == __name__:
 
     assert(sample >= batchSize)
     layers = CLayerController()
-
-    layers.append(CConvolutionLayer(filterShape=(96,11,11),stride=4))
-    layers.append(CPoolingLayer(shape=(3,3),stride=3))
+    layers.append(CConvolutionLayer(filterShape=(6,5,5),stride=1,cost=5e-4))
+    layers.append(CPoolingLayer(shape=(2,2),stride=2))
     layers.append(CBatchNormLayer())
     layers.append(CReLU())
-    '''
-    layers.append(CConvolutionLayer(filterShape=(256,5,5),stride=2))
-    layers.append(CPoolingLayer(shape=(3,3),stride=3))
+    layers.append(CDropOutLayer(validRate=0.5))
+    layers.append(CConvolutionLayer(filterShape=(16,5,5),stride=1,cost=5e-4))
+    layers.append(CPoolingLayer(shape=(2,2),stride=2))
+    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CBatchNormLayer())
     layers.append(CReLU())
-    
-    layers.append(CConvolutionLayer(filterShape=(384,3,3),stride=1))
+    layers.append(CAffineLayer(outShape=(120,),cost=5e-4))
+    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CBatchNormLayer())
     layers.append(CReLU())
-    
-    layers.append(CConvolutionLayer(filterShape=(384,3,3),stride=1))
+    layers.append(CAffineLayer(outShape=(84,),cost=5e-4))
     layers.append(CBatchNormLayer())
+    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CReLU())
-    
-    layers.append(CConvolutionLayer(filterShape=(256,3,3),stride=1))
-    layers.append(CBatchNormLayer())
+    layers.append(CAffineLayer(outShape=(1,),cost=5e-4))
     layers.append(CReLU())
-    '''
-    layers.append(CAffineLayer(outShape=(4096,)))
-
-    layers.append(CAffineLayer(outShape=(4096,)))
-
-    layers.append(CAffineLayer(outShape=(1,)))
-
     layers.setOut(CSparseHuberLoss())
     
     for epoch in range(100000000000):
