@@ -191,8 +191,8 @@ class CConvolutionLayer(CLayer):
     def __initInpl(self,x):
         assert(4 == np.array(x).ndim)
         batch,self.inC,self.inH,self.inW = x.shape
-        assert(0 == (self.inH + 2 * self.pad - self.fh) % self.stride)
-        assert(0 == (self.inW + 2 * self.pad - self.fw) % self.stride)
+#        assert(0 == (self.inH + 2 * self.pad - self.fh) % self.stride)
+#        assert(0 == (self.inW + 2 * self.pad - self.fw) % self.stride)
         self.outH = 1 + (self.inH + 2 * self.pad - self.fh) // self.stride
         self.outW = 1 + (self.inW + 2 * self.pad - self.fw) // self.stride
         
@@ -291,7 +291,7 @@ class CPoolingLayer(CLayer):
 
 
 class CBatchNormLayer(CLayer):
-    def __init__(self, gamma, beta, moment=0.9):
+    def __init__(self, gamma = 1.0, beta = 0.0, moment=0.9):
         self.gamma = gamma
         self.beta = beta
         self.moment = moment
@@ -462,7 +462,7 @@ class CHinge(CLayer):
         assert(dydx.shape == self.x.shape)
         return dydx
 
-class CSquareHinge(CLayer):
+class CSquareHingeLoss(CLayer):
     def __init__(self):
         pass
     def forward(self,x,label):  
@@ -481,6 +481,30 @@ class CSquareHinge(CLayer):
         dydx = (self.label > 0) * (self.xv <  1) * (self.xv - 1) +\
                (self.label < 0) * (self.xv > -1) * (self.xv + 1)
         dydx /= self.xv.size
+        dydx = np.transpose([dydx])
+        assert(dydx.shape == self.x.shape)
+        return dydx
+
+class CSparseHuberLoss(CLayer):
+    def __init__(self):
+        pass
+    def forward(self,x,label):  
+        assert(label.size == x.shape[0])
+        self.x = x  #確認用
+        self.label = label
+        xv = self.x.flatten()
+        assert(self.label.shape == xv.shape)
+
+        self.margin = self.label * xv
+        return np.average(\
+            (self.margin >= -1) * (self.margin < 1) * ((self.margin - 1)**2) +\
+            (self.margin <  -1) * (- 4.0 * self.margin))
+        
+    def backward(self):
+
+        dydx = (self.margin >= -1) * (self.margin < 1) * (2 * (self.margin - 1) * self.label) +\
+            (self.margin <  -1) * (- 4.0 * self.label)
+        dydx /= self.margin.size
         dydx = np.transpose([dydx])
         assert(dydx.shape == self.x.shape)
         return dydx
@@ -561,14 +585,14 @@ if "__main__" == __name__:
     trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
     testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
 
-    shrinkX = 2
-    shrinkY = 4
+    shrinkX = 1
+    shrinkY = 1
     n,h,w = trainScore.shape
     trainScore = trainScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
     n,h,w = testScore.shape
     testScore = testScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
     
-#    imt.ndarray2PILimg(trainScore[0]).resize((400,400)).show();exit()
+#    imt.ndarray2PILimg(trainScore[1]).resize((200,400)).show();exit()
     
     n,h,w = trainScore.shape
     trainScore = trainScore.reshape(n,1,h,w)
@@ -591,23 +615,36 @@ if "__main__" == __name__:
 
     assert(sample >= batchSize)
     layers = CLayerController()
-    layers.append(CConvolutionLayer(filterShape=(6,5,5),stride=1))
-    layers.append(CPoolingLayer(shape=(2,2),stride=2))
-    layers.append(CTanh())
-    layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CConvolutionLayer(filterShape=(16,5,5),stride=1))
-    layers.append(CPoolingLayer(shape=(2,2),stride=2))
-    layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CTanh())
-    layers.append(CAffineLayer(outShape=(120,)))
-    layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CTanh())
-    layers.append(CAffineLayer(outShape=(84,)))
-    layers.append(CDropOutLayer(validRate=0.5))
-    layers.append(CTanh())
+
+    layers.append(CConvolutionLayer(filterShape=(96,11,11),stride=4))
+    layers.append(CPoolingLayer(shape=(3,3),stride=3))
+    layers.append(CBatchNormLayer())
+    layers.append(CReLU())
+    '''
+    layers.append(CConvolutionLayer(filterShape=(256,5,5),stride=2))
+    layers.append(CPoolingLayer(shape=(3,3),stride=3))
+    layers.append(CBatchNormLayer())
+    layers.append(CReLU())
+    
+    layers.append(CConvolutionLayer(filterShape=(384,3,3),stride=1))
+    layers.append(CBatchNormLayer())
+    layers.append(CReLU())
+    
+    layers.append(CConvolutionLayer(filterShape=(384,3,3),stride=1))
+    layers.append(CBatchNormLayer())
+    layers.append(CReLU())
+    
+    layers.append(CConvolutionLayer(filterShape=(256,3,3),stride=1))
+    layers.append(CBatchNormLayer())
+    layers.append(CReLU())
+    '''
+    layers.append(CAffineLayer(outShape=(4096,)))
+
+    layers.append(CAffineLayer(outShape=(4096,)))
+
     layers.append(CAffineLayer(outShape=(1,)))
-    layers.append(CTanh())
-    layers.setOut(CExponentialLoss())
+
+    layers.setOut(CSparseHuberLoss())
     
     for epoch in range(100000000000):
 
