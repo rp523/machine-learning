@@ -6,36 +6,20 @@ import imgtool as imt
 import mathtool as mt
 
     
-def ZeroPadding(srcMap,pad):
-    if not isinstance(srcMap, np.ndarray):
-        print("ZeroPadding Input Type Error")
-        return 
-    
-    srcMapHeight = srcMap.shape[0]
-    srcMapWidth  = srcMap.shape[1]
-    
-    retList = []
-    newCol = list(np.zeros(pad))
-    for p in range(0,pad):
-        retList.append(list(np.zeros(srcMapWidth+2*pad)))
-    for i in range(0,srcMapHeight):
-        newRow = newCol + list(srcMap[i]) + newCol
-        retList.append( newRow )
-    for p in range(0,pad):
-        retList.append(list(np.zeros(srcMapWidth+2*pad)))
-
-    return np.array(retList)
-
 class CHogParam():
-    def __init__(self, bin=None,
-                       cellX = None,
-                       cellY = None,
-                       blockX = None,
-                       blockY = None,
-                       jointAND = None,
-                       jointOR = None,
-                       jointXOR = None,
-                       ):
+    def __init__(self, 
+                 bin=None,
+                 tgtX = None,
+                 tgtY = None,
+                 tgtW = None,
+                 tgtH = None,
+                 cellX = None,
+                 cellY = None,
+                 blockX = None,
+                 blockY = None,
+                 jointAND = None,
+                 jointOR = None,
+                 jointXOR = None):
         if None != bin:
             self.bin = bin
         else:
@@ -76,29 +60,37 @@ class CHogParam():
         else:
             self.jointXOR = False
 
+        if not tgtX:
+            self.tgtX = tgtX
+        else:
+            self.tgtX = 0
+        if not tgtY:
+            self.tgtY = tgtY
+        else:
+            self.tgtY = 0
+        if not tgtW:
+            self.tgtW = tgtW
+        else:
+            self.tgtW = self.cellX
+        if not tgtH:
+            self.tgtH = tgtH
+        else:
+            self.tgtY = self.cellY
 
 class CHog:
     def __init__(self, HogParam):
         
-        if isinstance(HogParam, CHogParam):
-            self.__hogParam = HogParam
-        else:
-            print("HogParam is wrong type.")
+        assert(isinstance(HogParam, CHogParam))
+        self.__hogParam = HogParam
        
     def calc(self,srcImg):
         
-        # 画像に関するプライベート変数の初期化
-        self.__srcImg = None
-        if isinstance( srcImg, np.ndarray ):
-            self.__srcImg = srcImg
-        else:
-            print("Error! Input image should be instanced as np.ndarray but is ", type(srcImg))
+        hogParam = self.__hogParam
+        
+        assert(isinstance(srcImg, np.ndarray))
 
-        self.__srcImgHeight = self.__srcImg.shape[0]
-        self.__srcImgWidth  = self.__srcImg.shape[1]
-        self.__cellYUnit = self.__srcImgHeight / self.__hogParam.cellY
-        self.__cellXUnit = self.__srcImgWidth  / self.__hogParam.cellX
-        self.__binUnit    =np.pi           / self.__hogParam.bin
+        imgHeight = srcImg.shape[0]
+        imgWidth  = srcImg.shape[1]
 
         dxFilter = np.array(((-1,-1,-1),
                              ( 0, 0, 0),
@@ -106,81 +98,59 @@ class CHog:
         dyFilter = np.array(((-1, 0, 1),
                              (-1, 0, 1),
                              (-1, 0, 1)))
-        dy = mt.Convolution(self.__srcImg, dxFilter)
-        dx = mt.Convolution(self.__srcImg, dyFilter)
+        dy = mt.Convolution(srcImg, dxFilter)
+        dx = mt.Convolution(srcImg, dyFilter)
+
         magnitude = np.sqrt((dx * dx) + (dy * dy))
-        theta = np.arctan2( dy, dx )
-        theta = theta + (self.__binUnit * 0.5)
-        theta = theta + ((1*(theta<0)) - (1*(theta>np.pi)))*np.pi
+        theta = np.arctan2( dy, dx ) / np.pi * self.__hogParam.bin
+        #真横エッジ、真縦エッジを効率良く拾うためにBin/2だけずらすを調整
+        theta = theta + 0.5
+        #値の範囲調整(0〜bin-1)
+        theta = theta + ((1 * (theta < 0)) - (1 * (theta >= self.__hogParam.bin))) * self.__hogParam.bin 
+        #int化
+        theta = theta.astype(np.int) 
 
-        # store magnitude to histogram
-        self.__binMap = np.zeros((self.__hogParam.cellY,self.__hogParam.cellX,self.__hogParam.bin))
-        self.__normMap= np.zeros((self.__hogParam.cellY,self.__hogParam.cellX))
+        # reshape,mean機能だけで和が取れるようにゼロを挿入する
+        padY = hogParam.cellY - theta.shape[0] % hogParam.cellY
+        padX = hogParam.cellX - theta.shape[1] % hogParam.cellX
+        cellHeight = theta.shape[0] // hogParam.cellY
+        cellWidth  = theta.shape[1] // hogParam.cellX
+        insertY = tuple(np.arange(padY) * cellHeight)
+        insertX = tuple(np.arange(padX) * cellWidth )
+        theta     = np.insert(theta,     insertY, 0,   axis = 0)
+        theta     = np.insert(theta,     insertX, 0,   axis = 1)
+        magnitude = np.insert(magnitude, insertY, 0.0, axis = 0)
+        magnitude = np.insert(magnitude, insertX, 0.0, axis = 1)
+        assert(0 == (theta.shape[0] % hogParam.cellY))
+        assert(0 == (theta.shape[1] % hogParam.cellX))
         
-        thetaHeight = theta.shape[0]
-        thetaWidth  = theta.shape[1]
-        unitCellHeight = thetaHeight / self.__hogParam.cellY
-        unitCellWidth  = thetaWidth  / self.__hogParam.cellX
-        unitBin = np.pi / self.__hogParam.bin
-
-        for y in range(0,thetaHeight):
-            sCellY = int(y/unitCellHeight)
+        # 画像の各点においてtheta-binの箇所だけ1になっているbin長さのVector行列を作る
+        oneHot = np.zeros((theta.size, hogParam.bin),float)
+        oneHot[np.arange(theta.size),theta.flatten()] = 1
         
-            for x in range(0,thetaWidth):
-                sCellX = int(x/unitCellWidth)
-                sBin = int(theta[y,x]/unitBin)
-
-                self.__binMap[sCellY,sCellX,sBin] = self.__binMap[sCellY,sCellX,sBin] + magnitude[y,x]
-                self.__normMap[sCellY,sCellX]     = self.__normMap[sCellY,sCellX] + magnitude[y,x]
-                
-        self.__feature = self.__Normalize()
+        #ゼロ挿入によって形が変わっているので、再度セルの大きさを計算
+        cellHeight = theta.shape[0] // hogParam.cellY
+        cellWidth  = theta.shape[1] // hogParam.cellX
         
-        noJointLen = self.__feature.size
-        if False != self.__hogParam.jointAND:
-            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
-            n = 0
-            for i in range(noJointLen):
-                for j in range(i + 1, noJointLen):
-                    featureNew[n] = min(self.__feature[i], self.__feature[j])
-                    n += 1
-            self.__feature = np.array(list(self.__feature) + list(featureNew))
-        if False != self.__hogParam.jointOR:
-            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
-            n = 0
-            for i in range(noJointLen):
-                for j in range(i + 1, noJointLen):
-                    featureNew[n] = max(self.__feature[i], self.__feature[j])
-                    n += 1
-            self.__feature = np.array(list(self.__feature) + list(featureNew))
-        if False != self.__hogParam.jointXOR:
-            featureNew = np.empty(int(noJointLen*(noJointLen-1)/2))
-            n = 0
-            for i in range(noJointLen):
-                for j in range(i + 1, noJointLen):
-                    featureNew[n] = max(self.__feature[i], self.__feature[j])   \
-                                  - min(self.__feature[i], self.__feature[j])
-                    n += 1
-            self.__feature = np.array(list(self.__feature) + list(featureNew))
+        hogCube = oneHot.T.reshape(hogParam.bin, theta.shape[0], theta.shape[1]) * magnitude
+        hogCube = hogCube.reshape(hogParam.bin, hogParam.cellY, cellHeight, hogParam.cellX, cellWidth)
+        rawHogMap = hogCube.transpose(0,1,3,2,4).sum(axis=4).sum(axis=3)
 
-        return self.__feature
+        # L2ノルムの計算
+        normMap = np.sqrt((rawHogMap * rawHogMap).transpose(1,2,0).sum(axis = 2))
+        
+        normalizedHogMap = (rawHogMap / normMap).transpose(1,2,0)
+        
+        return normalizedHogMap.flatten()
 
-    def __Normalize(self):
- 
-        ret = np.empty((0,self.__hogParam.bin*self.__hogParam.blockY*self.__hogParam.blockX))
-               
-        for by in range(0,self.__hogParam.cellY - self.__hogParam.blockY + 1):
-            for bx in range(0,self.__hogParam.cellX - self.__hogParam.blockX + 1):
-                
-                # ブロックごとに正規化するためのノルム計算
-                blockNorm = np.sqrt(np.sum( self.__normMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX] * \
-                                    self.__normMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX] ))
+        noJointLen = normalizedHogMap.size
+        if hogParam.jointAND:
+            pass
+        if self.__hogParam.jointOR:
+            pass
+        if self.__hogParam.jointXOR:
+            pass
 
-                if blockNorm != 0.0:
-                    ret = np.append(ret,[(self.__binMap[by : by + self.__hogParam.blockY, bx : bx + self.__hogParam.blockX,:] / blockNorm).flatten()],axis = 0)
-                else:
-                    ret = np.append(ret,np.zeros((1,self.__hogParam.bin*self.__hogParam.blockY*self.__hogParam.blockX)),axis = 0)
-
-        return ret.flatten()
 
     def GetFeatureLength(self):
         noJoint =  ( self.__hogParam.cellY - self.__hogParam.blockY + 1 ) * \
