@@ -29,8 +29,9 @@ class DecisionTree:
         out = np.empty((featureIdxs.size, scores.shape[1]))
         for f in range(featureIdxs.size):
             idx = featureIdxs[f]
-            score = scores[f][f]
-            out[f] = self.nodes[idx].predict(score)
+            for sample in range(scores.shape[1]):
+                score = scores[f][sample]
+                out[f][sample] = self.nodes[idx].predict(score)
         return out
 
     class Node:
