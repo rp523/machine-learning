@@ -173,20 +173,33 @@ class CAdaBoost:
             
             for w in range(detLen):
                 
+                
                 assert(detIdx.size == yfMat.shape[0] == errorMat.shape[0])
-                errorRates = np.sum(errorMat * sampleWeights, axis = 1)
-                bestIdx = np.argmin(errorRates)
-                strongDetID[w] = detIdx[bestIdx]
+                errorSum = np.sum(errorMat * sampleWeights, axis = 1)
+                assert(detIdx.size == errorSum.size)
+                bestIdx  = np.argmin(errorSum)
+                worstIdx = np.argmax(errorSum) # 「必ず間違える識別器」は、符号反転させれば素晴らしい識別器。
                 epsilon = 1e-10
-                reliability = 0.5 * np.log((1.0 - errorRates[bestIdx] + epsilon) / (errorRates[bestIdx] + epsilon))
-                self.__detWeights[w] = reliability
-                sampleWeights = sampleWeights * np.exp(- reliability * yfMat[bestIdx])
+                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx] + epsilon) / (errorSum[bestIdx] + epsilon))
+                reliabilityWorst = 0.5 * np.log((errorSum[worstIdx] + epsilon) / (1.0 - errorSum[worstIdx] + epsilon))
+                if reliabilityBest > reliabilityWorst:
+                    finalIdx = bestIdx
+                    self.__detWeights[w] = reliabilityBest
+                else:
+                    finalIdx = worstIdx
+                    self.__detWeights[w] = - reliabilityWorst   # 符号反転
+
+                # サンプル重みを更新し、ポジネガそれぞれ正規化
+                sampleWeights = sampleWeights * np.exp(- reliabilityBest * yfMat[finalIdx])
                 sampleWeights[self.__labelList > 0] /= np.sum(sampleWeights[self.__labelList > 0])
                 sampleWeights[self.__labelList < 0] /= np.sum(sampleWeights[self.__labelList < 0])
                 
-                detIdx = np.delete(detIdx, bestIdx)
-                yfMat  = np.delete(yfMat,  bestIdx, axis = 0)
-                errorMat = np.delete(errorMat, bestIdx, axis = 0)
+                strongDetID[w] = detIdx[finalIdx]
+                detIdx = np.delete(detIdx, finalIdx)
+                yfMat  = np.delete(yfMat,  finalIdx, axis = 0)
+                errorMat = np.delete(errorMat, finalIdx, axis = 0)
+
+                print("boosting weak detector:", w + 1)
 
         elif (self.__adaType == "Real") or (self.__adaType == "SaturatedReal"):
             
