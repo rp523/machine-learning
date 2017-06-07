@@ -158,46 +158,61 @@ class CAdaBoost:
                                         labelVec = self.__labelList,
                                         maxDepth = 2)
             scoreMat = self.__decisionTree.predict(np.arange(detectorNum), self.__trainScoreMat)
+            
+            '''
+            for i in range(scoreMat.shape[0]):
+                for j in range(scoreMat.shape[1]):
+                    print(scoreMat[i,j], end=" ")
+                print()
+                print()
+            print(np.sum(scoreMat == 1))
+            print(np.sum(scoreMat == -1))
+            print(np.sum(self.__labelList == 1))
+            print(np.sum(self.__labelList == -1))
+            exit()
+            '''
+
             detIdxSaved = np.arange(detectorNum)
             detIdx = detIdxSaved
             self.__detWeights = np.empty(detLen)
 
             sampleWeights = np.ones(sampleNum)
-            sampleWeights[self.__labelList > 0] /= np.sum(self.__labelList > 0)
-            sampleWeights[self.__labelList < 0] /= np.sum(self.__labelList < 0)
+            sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0] / np.sum(sampleWeights[self.__labelList > 0])
+            sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0] / np.sum(sampleWeights[self.__labelList < 0])
 
             yfMatSaved = (scoreMat * self.__labelList).astype(np.int)
             yfMat = yfMatSaved
-            errorMatSaved = (yfMat < 0).astype(np.int)
-            errorMat = errorMatSaved
             
             for w in range(detLen):
                 
-                
-                assert(detIdx.size == yfMat.shape[0] == errorMat.shape[0])
-                errorSum = np.sum(errorMat * sampleWeights, axis = 1)
+                assert(detIdx.size == yfMat.shape[0])
+                errorSum = np.sum(sampleWeights * (yfMat < 0), axis = 1)
                 assert(detIdx.size == errorSum.size)
                 bestIdx  = np.argmin(errorSum)
-                worstIdx = np.argmax(errorSum) # 「必ず間違える識別器」は、符号反転させれば素晴らしい識別器。
-                epsilon = 1e-10
-                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx] + epsilon) / (errorSum[bestIdx] + epsilon))
-                reliabilityWorst = 0.5 * np.log((errorSum[worstIdx] + epsilon) / (1.0 - errorSum[worstIdx] + epsilon))
-                if reliabilityBest > reliabilityWorst:
-                    finalIdx = bestIdx
-                    self.__detWeights[w] = reliabilityBest
-                else:
-                    finalIdx = worstIdx
-                    self.__detWeights[w] = - reliabilityWorst   # 符号反転
+
+                epsilon = 1e-5
+                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx    ] + epsilon) / (errorSum[bestIdx    ] + epsilon))
+                
+                print(scoreMat)
+                assert(reliabilityBest >= 0)
+                
+                finalIdx = bestIdx
+                self.__detWeights[w] = reliabilityBest
 
                 # サンプル重みを更新し、ポジネガそれぞれ正規化
-                sampleWeights = sampleWeights * np.exp(- reliabilityBest * yfMat[finalIdx])
-                sampleWeights[self.__labelList > 0] /= np.sum(sampleWeights[self.__labelList > 0])
-                sampleWeights[self.__labelList < 0] /= np.sum(sampleWeights[self.__labelList < 0])
+                sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0]   \
+                                                    * np.exp( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList > 0]
+                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList > 0]))
+                sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0]   \
+                                                    * np.exp( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList < 0]
+                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList < 0]))
+                sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0] / np.sum(sampleWeights[self.__labelList > 0])
+                sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0] / np.sum(sampleWeights[self.__labelList < 0])
+                assert(not np.any(np.isnan(sampleWeights)))
                 
                 strongDetID[w] = detIdx[finalIdx]
                 detIdx = np.delete(detIdx, finalIdx)
                 yfMat  = np.delete(yfMat,  finalIdx, axis = 0)
-                errorMat = np.delete(errorMat, finalIdx, axis = 0)
 
                 print("boosting weak detector:", w + 1)
 
