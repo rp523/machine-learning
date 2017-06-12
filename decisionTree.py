@@ -131,16 +131,18 @@ class DecisionTree:
 if "__main__" == __name__:
 
     N = 100
-    data = np.arange(N)
+    data = np.arange(N) / N
     data =  np.sort(data)[::-1]
     data = data.reshape(1, -1)
     label = np.array([-1] * (N // 2) + [1] * (N // 2))    
     a = DecisionTree(maxDepth = 2,
                      scoreMat = data,
                      labelVec = label)
+    test = np.random.uniform(0,1,N).reshape(1, -1)
     ans = a.predict(featureIdxs = np.array([0]),
-                    scores = data)
+                    scores = test).astype(np.int)
     print(data)
     print(label)
+    print(test)
     print(ans)
     print("Done.")
