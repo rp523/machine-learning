@@ -22,7 +22,9 @@ from decisionTree import *
 class AdaBoostParam(CParam):
     def __init__(self):
         setDicts = dicts()
-        setDicts["Type"] = selparam("Discrete", "Real", "SaturatedReal")
+        setDicts["Type"] = selparam("Discrete", "Real")
+        setDicts["Saturate"] = True
+        setDicts["SaturateLevel"] = 0.4
         setDicts["Bin"] = 32
         setDicts["Loop"] = 10000
         setDicts["Regularizer"] = 1e-5
@@ -91,7 +93,8 @@ class CAdaBoost:
         if None == self.__featureLen:
             self.__featureLen = 0
             for detector in self.__detectorList:
-                self.__featureLen = self.__featureLen + detector.GetFeatureLength2()
+                assert(detector.GetFeatureLength)
+                self.__featureLen = self.__featureLen + detector.GetFeatureLength()
         return self.__featureLen
 
     # PosとNegが混在しているスコア行列からPosのみ、Negのみのスコア行列に分離する
@@ -121,7 +124,6 @@ class CAdaBoost:
     def __Boost(self):
 
         if os.path.exists("strong.mat"):
-            print("ARU")
             return
         
         assert(isinstance(self.__trainScoreMat, np.ndarray))
@@ -158,28 +160,14 @@ class CAdaBoost:
                                         labelVec = self.__labelList,
                                         maxDepth = 2)
             scoreMat = self.__decisionTree.predict(np.arange(detectorNum), self.__trainScoreMat)
-            
-            '''
-            for i in range(scoreMat.shape[0]):
-                for j in range(scoreMat.shape[1]):
-                    print(scoreMat[i,j], end=" ")
-                print()
-                print()
-            print(np.sum(scoreMat == 1))
-            print(np.sum(scoreMat == -1))
-            print(np.sum(self.__labelList == 1))
-            print(np.sum(self.__labelList == -1))
-            exit()
-            '''
 
             detIdxSaved = np.arange(detectorNum)
-            detIdx = detIdxSaved
+            detIdx = detIdxSaved    
             self.__detWeights = np.empty(detLen)
 
-            sampleWeights = np.ones(sampleNum)
-            sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0] / np.sum(sampleWeights[self.__labelList > 0])
-            sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0] / np.sum(sampleWeights[self.__labelList < 0])
-
+            sampleWeights = np.ones(sampleNum) / sampleNum
+            assert(sampleWeights.size == sampleNum)
+            
             yfMatSaved = (scoreMat * self.__labelList).astype(np.int)
             yfMat = yfMatSaved
             
@@ -190,25 +178,19 @@ class CAdaBoost:
                 assert(detIdx.size == errorSum.size)
                 bestIdx  = np.argmin(errorSum)
 
-                epsilon = 1e-5
-                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx    ] + epsilon) / (errorSum[bestIdx    ] + epsilon))
-                
-                print(scoreMat)
-                assert(reliabilityBest >= 0)
+                epsilon = 1e-10
+                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx    ] + epsilon + self.__regularize) \
+                                                    / (errorSum[bestIdx    ] + epsilon + self.__regularize))
                 
                 finalIdx = bestIdx
                 self.__detWeights[w] = reliabilityBest
 
                 # サンプル重みを更新し、ポジネガそれぞれ正規化
-                sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0]   \
-                                                    * np.exp( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList > 0]
-                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList > 0]))
-                sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0]   \
-                                                    * np.exp( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList < 0]
-                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx][self.__labelList < 0]))
-                sampleWeights[self.__labelList > 0] = sampleWeights[self.__labelList > 0] / np.sum(sampleWeights[self.__labelList > 0])
-                sampleWeights[self.__labelList < 0] = sampleWeights[self.__labelList < 0] / np.sum(sampleWeights[self.__labelList < 0])
+                sampleWeights = sampleWeights * np.exp( - self.__detWeights[w] * yfMat[finalIdx]
+                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx]))
+                sampleWeights = sampleWeights / np.sum(sampleWeights)
                 assert(not np.any(np.isnan(sampleWeights)))
+                assert(np.all(sampleWeights > 0))
                 
                 strongDetID[w] = detIdx[finalIdx]
                 detIdx = np.delete(detIdx, finalIdx)
@@ -216,7 +198,7 @@ class CAdaBoost:
 
                 print("boosting weak detector:", w + 1)
 
-        elif (self.__adaType == "Real") or (self.__adaType == "SaturatedReal"):
+        elif self.__adaType == "Real":
             
             '''
             #ヒストグラム算出用のフィルタテンソルを作成
@@ -317,6 +299,8 @@ class CAdaBoost:
         
         if not os.path.exists("Test.mat"):
             logCnt = 0;
+            if not self.__GetFeatureLength:
+                assert(0)
             self.__testScoreMat = np.empty((0,self.__GetFeatureLength()),float)
             for img in inImgList:
             
