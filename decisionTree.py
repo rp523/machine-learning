@@ -39,7 +39,7 @@ class DecisionTree:
         return out
 
     class Node:
-        def __init__(self, scoreVec, labelVec, parentDepth, maxDepth):
+        def __init__(self, scoreVec, labelVec, parentDepth, maxDepth, sampleIndexes = None):
             assert(isinstance(scoreVec, np.ndarray))
             assert(scoreVec.ndim == 1)
             assert(isinstance(labelVec, np.ndarray))
@@ -52,22 +52,33 @@ class DecisionTree:
             self.__childL = None
             self.__childR = None
             self.__majority = None
+            self.__thresh = None
+            self.__assignedIndexes = sampleIndexes
             
             labels = np.unique(labelVec);
             labelNum = labels.size
             if labelNum == 1:
                 # 全サンプルのラベルが同じなら、子ノードをもはや作らない
                 self.__majority = labelVec[0]
+                self.__assignedIndexes = sampleIndexes
             elif labelNum >= 2:
                 if self.__myDepth != maxDepth:
-                    self.thresh = self.CalcBestThresh(scoreVec, labelVec)
-                    assert(isinstance(self.thresh, float))
-                    self.__childL = DecisionTree.Node(scoreVec = scoreVec[scoreVec <= self.thresh],
-                                            labelVec = labelVec[scoreVec <= self.thresh],
+                    self.__thresh = self.__calcBestThresh(scoreVec, labelVec)
+                    assert(isinstance(self.__thresh, float))
+                    
+                    assignL = None
+                    assignR = None
+                    if sampleIndexes != None:
+                        assignL = sampleIndexes[scoreVec <= self.__thresh]
+                        assignR = sampleIndexes[scoreVec >  self.__thresh]
+                    self.__childL = DecisionTree.Node(scoreVec = scoreVec[scoreVec <= self.__thresh],
+                                            labelVec = labelVec[scoreVec <= self.__thresh],
+                                            sampleIndexes = assignL,
                                             parentDepth = self.__myDepth,
                                             maxDepth = self.__maxDepth)
-                    self.__childR = DecisionTree.Node(scoreVec = scoreVec[scoreVec > self.thresh],
-                                            labelVec = labelVec[scoreVec > self.thresh],
+                    self.__childR = DecisionTree.Node(scoreVec = scoreVec[scoreVec > self.__thresh],
+                                            labelVec = labelVec[scoreVec > self.__thresh],
+                                            sampleIndexes = assignR,
                                             parentDepth = self.__myDepth,
                                             maxDepth = self.__maxDepth)
                 else:
@@ -77,6 +88,7 @@ class DecisionTree:
                     for l in range(labelNum):
                         labelCount[l] = np.sum(labelVec == labels[l])
                     self.__majority = labels[np.argmax(labelCount)]
+                    self.__assignedIndexes = sampleIndexes
             else:
                 assert(0)
                     
@@ -85,12 +97,31 @@ class DecisionTree:
             if self.__majority:
                 # ターミナルノードか、またはラベルが完全純粋
                 return self.__majority
-            elif self.thresh >= score:
+            elif self.__thresh >= score:
                 return self.__childL.predict(score)
             else:
                 return self.__childR.predict(score)
+        
+        def getThresh(self):
+            out = np.empty(0)
+            if self.__childL:
+                out = np.append(out, self.__childL.getThresh())
+            if self.__thresh:
+                out = np.append(out, self.__thresh)
+            if self.__childR:
+                out = np.append(out, self.__childR.getThresh())
+            return out
+        
+        def getAssigned(self):
+            out = []
+            if (self.__childL) and (self.__childR):
+                out = out + self.__childL.getAssigned()
+                out = out + self.__childR.getAssigned()
+            else:
+                out.append(list(self.__assignedIndexes))
+            return out
 
-        def CalcBestThresh(self, scoreVec, labelVec):
+        def __calcBestThresh(self, scoreVec, labelVec):
             assert(isinstance(scoreVec, np.ndarray))
             assert(isinstance(labelVec, np.ndarray))
             assert(scoreVec.ndim == 1)
@@ -127,22 +158,26 @@ class DecisionTree:
             out = 0.5 * (scoreVec[divUp - 1] + scoreVec[divUp])
             assert(np.array(out).size == 1)
             return out
-                
+
 if "__main__" == __name__:
 
-    N = 100
+    N = 1000
     data = np.arange(N) / N
     data =  np.sort(data)[::-1]
-    data = data.reshape(1, -1)
-    label = np.array([-1] * (N // 2) + [1] * (N // 2))    
-    a = DecisionTree(maxDepth = 2,
-                     scoreMat = data,
-                     labelVec = label)
-    test = np.random.uniform(0,1,N).reshape(1, -1)
-    ans = a.predict(featureIdxs = np.array([0]),
-                    scores = test).astype(np.int)
-    print(data)
-    print(label)
-    print(test)
-    print(ans)
+    label = np.random.choice(np.array([-1] * (N // 2) + [1] * (N // 2)), N, replace = False)
+    a = DecisionTree.Node(maxDepth = 10,
+                     scoreVec = np.sort(data),
+                     labelVec = label[np.argsort(data)],
+                     parentDepth=0,
+                     sampleIndexes = np.arange(N))
+#    test = np.random.uniform(0,1,N).reshape(1, -1)
+#    ans = a.predict(score = test).astype(np.int)
+#    print(data)
+#    print(label)
+#    print(test)
+#    print(ans)
+    print(len(a.getThresh()))
+    print(len(a.getAssigned()))
+#    print((a.getThresh()))
+#    print((a.getAssigned()))
     print("Done.")
