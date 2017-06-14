@@ -3,7 +3,7 @@ import numpy as np
 
 class DecisionTree:
     
-    def __init__(self, maxDepth, scoreMat, labelVec):
+    def __init__(self, maxDepth, scoreMat, labelVec, sampleIndexes = None):
         assert(isinstance(maxDepth, int))
         assert(isinstance(scoreMat, np.ndarray))
         assert(scoreMat.ndim == 2)
@@ -19,7 +19,8 @@ class DecisionTree:
                    self.Node(scoreVec = np.sort(scoreMat[f]),   # スコア昇順
                              labelVec = labelVec[np.argsort(scoreMat[f])],  # スコアの順番変更とひも付け
                              parentDepth = 0,
-                             maxDepth = maxDepth))
+                             maxDepth = maxDepth,
+                             sampleIndexes = sampleIndexes))
     
     def predict(self, featureIdxs, scores):
         assert(isinstance(featureIdxs, np.ndarray))
@@ -37,6 +38,14 @@ class DecisionTree:
                 score = scores[useFeatureIdx][sample]
                 out[f][sample] = self.nodes[useFeatureIdx].predict(score)
         return out
+
+    def getThresh(self, featureIndex):
+        assert(np.array(featureIndex).size == 1)
+        return self.nodes[featureIndex].getThresh()
+
+    def getAssigned(self, featureIndex):
+        assert(np.array(featureIndex).size == 1)
+        return self.nodes[featureIndex].getAssigned()
 
     class Node:
         def __init__(self, scoreVec, labelVec, parentDepth, maxDepth, sampleIndexes = None):
@@ -165,10 +174,9 @@ if "__main__" == __name__:
     data = np.arange(N) / N
     data =  np.sort(data)[::-1]
     label = np.random.choice(np.array([-1] * (N // 2) + [1] * (N // 2)), N, replace = False)
-    a = DecisionTree.Node(maxDepth = 10,
-                     scoreVec = np.sort(data),
+    a = DecisionTree(maxDepth = 10,
+                     scoreMat = np.sort(data).reshape(1, -1),
                      labelVec = label[np.argsort(data)],
-                     parentDepth=0,
                      sampleIndexes = np.arange(N))
 #    test = np.random.uniform(0,1,N).reshape(1, -1)
 #    ans = a.predict(score = test).astype(np.int)
@@ -176,8 +184,8 @@ if "__main__" == __name__:
 #    print(label)
 #    print(test)
 #    print(ans)
-    print(len(a.getThresh()))
-    print(len(a.getAssigned()))
+    print(len(a.getThresh(0)))
+    print(len(a.getAssigned(0)))
 #    print((a.getThresh()))
 #    print((a.getAssigned()))
     print("Done.")
