@@ -22,12 +22,13 @@ from decisionTree import *
 class AdaBoostParam(CParam):
     def __init__(self):
         setDicts = dicts()
-        setDicts["Type"] = selparam("Discrete", "Real")
+        setDicts["Type"] = selparam("Discrete", "Real", "RealTree")
         setDicts["Saturate"] = True
         setDicts["SaturateLevel"] = 0.4
         setDicts["Bin"] = 32
         setDicts["Loop"] = 10000
         setDicts["Regularizer"] = 1e-5
+        setDicts["TreeDepth"] = 1
         super().__init__(setDicts) 
 
 '''
@@ -52,6 +53,9 @@ class CAdaBoost:
         self.__bin = inAdaBoostParam["Bin"]
         self.__loopNum = inAdaBoostParam["Loop"]
         self.__regularize = inAdaBoostParam["Regularizer"]
+        self.__saturate = inAdaBoostParam["Saturate"]
+        self.__saturateLevel = inAdaBoostParam["SaturateLevel"]
+        self.__treeDepth = inAdaBoostParam["TreeDepth"]
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
@@ -154,7 +158,152 @@ class CAdaBoost:
         strongDetBin = np.zeros((detLen,self.__bin),float)
         strongDetID = np.zeros(detLen,int)
 
-        if self.__adaType == "Discrete":
+        if self.__adaType == "RealTree":
+            
+            def assign(sortScoreVec, sortIndexVec, threshVec):
+                assert(np.array(sortScoreVec).ndim == 1)
+                assert(np.array(sortIndexVec).ndim == 1)
+                assert(np.array(threshVec).ndim == 1)
+                out = []
+                sortIndex = sortIndexVec
+                threshOld = -1e10
+                for thresh in threshVec:
+                    valid = ((threshOld < sortScoreVec) * (sortScoreVec <= thresh)).astype(np.bool)
+                    out.append(list(sortIndex[valid]))
+
+                    invalid = np.bitwise_not(valid)
+                    sortIndex = sortIndex[invalid]    # delete selected-ones.
+                    sortScoreVec = sortScoreVec[invalid]
+                    threshOld = thresh
+                out.append(list(sortIndex)) # ones over the max thresh
+                return out
+                        
+            labelList = np.array(self.__labelList).astype(np.int)
+            sampleWeights = np.ones(sampleNum)
+            sampleWeights[labelList ==  1] = sampleWeights[labelList ==  1] / np.sum(sampleWeights[labelList ==  1])
+            sampleWeights[labelList == -1] = sampleWeights[labelList == -1] / np.sum(sampleWeights[labelList == -1])
+            
+            nodes = []
+            sampleIndexes = np.arange(sampleNum)
+            
+            for d in range(detectorNum):
+                assert(np.min(self.__trainScoreMat[d]) != np.max(self.__trainScoreMat[d]))
+                assert(np.min(labelList) != np.max(labelList))
+                sortIndex = np.argsort(self.__trainScoreMat[d])
+                node = DecisionTree.Node(   scoreVec = self.__trainScoreMat[d][sortIndex],
+                                            labelVec = labelList[sortIndex],
+                                            sampleIndexes = sampleIndexes[sortIndex],
+                                            maxDepth = self.__treeDepth)
+                
+                assert(len(node.getThresh()) > 0)
+                if(np.max(node.getThresh()) == np.min(node.getThresh())):
+                    print(node.getThresh())
+                nodes.append(node)
+            
+            detIdxSaved = np.arange(detectorNum)
+            detIdx = detIdxSaved
+            self.__treeThresh = []
+            self.__treeScore = []
+
+            sortIndexMat = np.zeros((detectorNum, sampleNum)).astype(np.int)
+            sortIndexMat[np.arange(detectorNum)] = np.arange(sampleNum)
+            sortScoreMat = np.empty((detectorNum, sampleNum))
+            argsortScoreMat = np.zeros((detectorNum, sampleNum)).astype(np.int)
+            for d in range(detectorNum):
+                argsortScoreMat[d] = np.argsort(self.__trainScoreMat[d])
+                sortScoreMat[d] = self.__trainScoreMat[d][argsortScoreMat[d]]
+                sortIndexMat[d] =sortIndexMat[d][argsortScoreMat[d]]
+
+            assignedListMat = []    
+            for d in range(detectorNum):
+                assignedList = assign(sortScoreVec = sortScoreMat[d],
+                                      sortIndexVec = sortIndexMat[d],
+                                      threshVec = nodes[d].getThresh())
+                assert(isinstance(assignedList, list))
+                assignedListMat.append(assignedList)
+
+            # 指定数だけ弱識別器をブースト選択するループ
+            for w in range(detLen):
+                
+                # ブーストの過程で長さを変えない
+                assert(sampleWeights.size == sampleNum)
+                assert(labelList.size == sampleNum)
+                
+                # まだ選択されず残っている弱識別器の中からベストを決める
+                Z  = np.zeros(detIdx.size)
+                Wp = np.zeros((detIdx.size, 2 ** self.__treeDepth))
+                Wm = np.zeros((detIdx.size, 2 ** self.__treeDepth))
+
+                for d in range(detIdx.size):
+                    for a in range(len(assignedListMat[d])):
+                        assigned = assignedListMat[d][a]
+                        assert(isinstance(assigned,list))
+                        assigned = np.array(assigned)
+                        if assigned.size > 0:
+                            assert(assigned.ndim == 1)
+                            isPositive = (labelList[assigned] ==  1)
+                            isNegative = np.bitwise_not(isPositive)
+                            Wp[d][a] = np.sum( sampleWeights[assigned] * isPositive)
+                            Wm[d][a] = np.sum( sampleWeights[assigned] * isNegative)
+
+                Z = np.sqrt( np.sum(Wp * Wm, axis = 1))
+                assert(Wp.shape == (detIdx.size, 2 ** self.__treeDepth))
+                assert(Wm.shape == (detIdx.size, 2 ** self.__treeDepth))
+                assert(Z.size == detIdx.size)
+                bestIdx  = np.argmin(Z)
+                finalIdx = detIdx[bestIdx]
+                bestAssignLen = len(assignedListMat[bestIdx])
+
+                epsilon = 1e-10
+                if not self.__saturate:
+                    reliabilityBest  = 0.5 * np.log((Wp[bestIdx] + epsilon + self.__regularize) \
+                                                  / (Wm[bestIdx] + epsilon + self.__regularize))
+                else:
+                    WpBest = (Wp[bestIdx] + self.__regularize) ** self.__saturateLevel
+                    WmBest = (Wm[bestIdx] + self.__regularize) ** self.__saturateLevel
+                    WpBest = WpBest[:bestAssignLen]
+                    WmBest = WmBest[:bestAssignLen]
+                    assert(WpBest.ndim == 1)
+                    assert(WmBest.ndim == 1)
+                    assert(WpBest.size == bestAssignLen)
+                    assert(WmBest.size == bestAssignLen)
+                    if (WpBest + WmBest != 0.0).all():
+                        reliabilityBest = (WpBest - WmBest) / (WpBest + WmBest)
+                    else:
+                        assert(0)
+                
+                assert((reliabilityBest != 0.0).any())
+                
+                # record selected feature
+                self.__treeThresh.append(nodes[finalIdx].getThresh())
+                self.__treeScore.append(list(reliabilityBest))
+
+                if not (reliabilityBest.size == bestAssignLen):
+                    print(reliabilityBest.size, bestAssignLen)
+                assert(reliabilityBest.size == bestAssignLen)
+
+                # サンプル重みを更新し、ポジネガそれぞれ正規化
+                scores = np.empty(sampleNum)
+
+                for a in range(len(assignedListMat[bestIdx])):
+                    assigned = assignedListMat[bestIdx][a]
+                    scores[assigned] = reliabilityBest[a]
+                assert(scores.size == sampleNum)
+
+                sampleWeights = sampleWeights * (np.exp( - labelList * scores)) # - np.max( - labelList * scores)
+                sampleWeights[labelList ==  1] = sampleWeights[labelList ==  1] / np.sum(sampleWeights[labelList ==  1])
+                sampleWeights[labelList == -1] = sampleWeights[labelList == -1] / np.sum(sampleWeights[labelList == -1])
+                assert(not np.any(np.isnan(sampleWeights)))
+                assert(np.all(sampleWeights > 0))
+                
+                strongDetID[w] = finalIdx
+                detIdx = np.delete(detIdx, bestIdx)
+                sortScoreMat = np.delete(sortScoreMat, bestIdx, axis = 0)
+                del assignedListMat[bestIdx]
+                
+                print("boosting weak detector:", w + 1)
+
+        elif self.__adaType == "Discrete":
             
             self.__decisionTree = DecisionTree(scoreMat = self.__trainScoreMat,
                                         labelVec = self.__labelList,
@@ -179,22 +328,21 @@ class CAdaBoost:
                 bestIdx  = np.argmin(errorSum)
 
                 epsilon = 1e-10
-                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx    ] + epsilon + self.__regularize) \
-                                                    / (errorSum[bestIdx    ] + epsilon + self.__regularize))
+                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx] + epsilon + self.__regularize) \
+                                                    / (errorSum[bestIdx] + epsilon + self.__regularize))
                 
-                finalIdx = bestIdx
                 self.__detWeights[w] = reliabilityBest
 
                 # サンプル重みを更新し、ポジネガそれぞれ正規化
-                sampleWeights = sampleWeights * np.exp( - self.__detWeights[w] * yfMat[finalIdx]
-                                                    - np.max( - self.__detWeights[w] * yfMat[finalIdx]))
+                sampleWeights = sampleWeights * np.exp( - self.__detWeights[w] * yfMat[bestIdx]
+                                                    - np.max( - self.__detWeights[w] * yfMat[bestIdx]))
                 sampleWeights = sampleWeights / np.sum(sampleWeights)
                 assert(not np.any(np.isnan(sampleWeights)))
                 assert(np.all(sampleWeights > 0))
                 
-                strongDetID[w] = detIdx[finalIdx]
-                detIdx = np.delete(detIdx, finalIdx)
-                yfMat  = np.delete(yfMat,  finalIdx, axis = 0)
+                strongDetID[w] = detIdx[bestIdx]
+                detIdx = np.delete(detIdx, bestIdx)
+                yfMat  = np.delete(yfMat,  bestIdx, axis = 0)
 
                 print("boosting weak detector:", w + 1)
 
@@ -333,6 +481,15 @@ class CAdaBoost:
                     finalScore[i] += strongDetector[d][b]
         elif self.__adaType == "Discrete":
             finalScore = np.dot(self.__detWeights, self.__decisionTree.predict(strongDetectorID, self.__testScoreMat)).T
+        elif self.__adaType == "RealTree":
+            didCount = 0
+            for did in strongDetectorID:
+                for sid in range(self.__testScoreMat.shape[1]):
+                    score = self.__testScoreMat[did][sid]
+                    isLarger = score > np.array(self.__treeThresh[didCount])
+                    assignIdx = np.sum(isLarger)
+                    finalScore[sid] += self.__treeScore[didCount][assignIdx]
+                didCount += 1
         else:
             assert(0)
         outDict = {}
