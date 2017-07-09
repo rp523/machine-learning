@@ -1,6 +1,13 @@
 import numpy as np
 from common.origLib import *
 
+
+def distriEntropy(distri):
+    assert(isinstance(distri, np.ndarray))
+    prob = distri / np.sum(distri)
+    nonZeroPart = prob[prob != 0.0]
+    return - (np.sum(nonZeroPart * np.log(nonZeroPart))) / np.log(distri.size)
+
 class DecisionTree:
     
     def __init__(self, maxDepth, scoreMat, labelVec, sampleIndexes = None):
@@ -221,7 +228,8 @@ class DecisionTree:
                 # 分類クラスごとのジニ係数をサンプル数を重みとして平均
                 # ジニ不純度を使う
                 inpurity = ((1.0 - np.sum(rateL * rateL)) * d + (1.0 - np.sum(rateR * rateR)) * (datNum - d)) / datNum
-                assert(1.0 >= inpurity >= 0.0)
+                inpurity -= distriEntropy(np.array([d, datNum - d]))    # データ分布も考慮
+                #assert(1.0 >= inpurity >= 0.0)
                 
                 # update the mimimum of inpurity.
                 if inpurityMin > inpurity:
