@@ -29,6 +29,7 @@ class AdaBoostParam(CParam):
         setDicts["Loop"] = 10000
         setDicts["Regularizer"] = 1e-5
         setDicts["TreeDepth"] = 1
+        setDicts["regDataDist"] = 0.0
         super().__init__(setDicts) 
 
 '''
@@ -56,6 +57,7 @@ class CAdaBoost:
         self.__saturate = inAdaBoostParam["Saturate"]
         self.__saturateLevel = inAdaBoostParam["SaturateLevel"]
         self.__treeDepth = inAdaBoostParam["TreeDepth"]
+        self.__regDataDist = inAdaBoostParam["regDataDist"]
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
@@ -193,7 +195,8 @@ class CAdaBoost:
                 node = DecisionTree.Node(   scoreVec = self.__trainScoreMat[d][sortIndex],
                                             labelVec = labelList[sortIndex],
                                             sampleIndexes = sampleIndexes[sortIndex],
-                                            maxDepth = self.__treeDepth)
+                                            maxDepth = self.__treeDepth,
+                                            regDataDist = self.__regDataDist)
                 
                 assert(len(node.getThresh()) > 0)
                 if(np.max(node.getThresh()) == np.min(node.getThresh())):
