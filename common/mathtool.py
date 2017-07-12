@@ -145,18 +145,19 @@ def ApproxPoly(x,y,polyDim):
         ret = False
     return ret
     
-def Convolution(rawMap,rawFilter,stride = 1, pad = 0):
+def Convolution(rawMaps, rawFilter,stride = 1, pad = 0):
     
-    assert(isinstance(rawMap,np.ndarray))
+    assert(isinstance(rawMaps, np.ndarray))
     assert(isinstance(rawFilter,np.ndarray))
     map2dim = False
 
-    if 2 == rawMap.ndim:
-        map = rawMap.reshape(1,1,rawMap.shape[0],rawMap.shape[1])
+    if 2 == rawMaps.ndim:
+        map = rawMaps.reshape(1,1,rawMaps.shape[0],rawMaps.shape[1])
         map2dim = True
     else:
-        map = rawMap
+        map = rawMaps.reshape(rawMaps.shape[0],1,rawMaps.shape[1],rawMaps.shape[2])
     assert(4 == map.ndim)
+    
     batch = map.shape[0]
     mapH = map.shape[2]
     mapW = map.shape[3]
@@ -185,6 +186,9 @@ def Convolution(rawMap,rawFilter,stride = 1, pad = 0):
 
     if map2dim:
         out = out.reshape(outH, outW)
+    else:
+        out = out.reshape(-1, outH, outW)
+
     return out
 
 

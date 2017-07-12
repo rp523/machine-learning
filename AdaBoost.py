@@ -30,6 +30,7 @@ class AdaBoostParam(CParam):
         setDicts["Regularizer"] = 1e-5
         setDicts["TreeDepth"] = 1
         setDicts["regDataDist"] = 0.0
+        setDicts["verbose"] = True
         super().__init__(setDicts) 
 
 '''
@@ -58,6 +59,7 @@ class CAdaBoost:
         self.__saturateLevel = inAdaBoostParam["SaturateLevel"]
         self.__treeDepth = inAdaBoostParam["TreeDepth"]
         self.__regDataDist = inAdaBoostParam["regDataDist"]
+        self.__verbose = inAdaBoostParam["verbose"]
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
@@ -76,14 +78,13 @@ class CAdaBoost:
             self.__trainScoreMat = np.empty((0,self.__GetFeatureLength()),float)
     
             logCnt = 0;
-            for img in self.__imgList:
             
-                featVec = np.empty(0,float)
-                for detector in self.__detectorList:
-                    featVec = np.append(featVec,np.array(detector.calc(img)))
-                self.__trainScoreMat = np.append(self.__trainScoreMat,np.array([featVec]),axis=0)
-                
-                logCnt = logCnt + 1
+            for detector in self.__detectorList:
+                a = np.array(self.__imgList)
+                self.__trainScoreMat = np.append(self.__trainScoreMat, detector.calc(self.__imgList), axis = 0)
+            
+            logCnt = logCnt + 1
+            if self.__verbose:
                 if (0 == logCnt % 100) or (len(self.__imgList) == logCnt):
                     print(logCnt,"/",len(self.__imgList),"file was prepared for training.")
     
@@ -304,7 +305,8 @@ class CAdaBoost:
                 sortScoreMat = np.delete(sortScoreMat, bestIdx, axis = 0)
                 del assignedListMat[bestIdx]
                 
-                print("boosting weak detector:", w + 1)
+                if self.__verbose:
+                    print("boosting weak detector:", w + 1)
 
         elif self.__adaType == "Discrete":
             
@@ -347,7 +349,8 @@ class CAdaBoost:
                 detIdx = np.delete(detIdx, bestIdx)
                 yfMat  = np.delete(yfMat,  bestIdx, axis = 0)
 
-                print("boosting weak detector:", w + 1)
+                if self.__verbose:
+                    print("boosting weak detector:", w + 1)
 
         elif self.__adaType == "Real":
             
@@ -392,9 +395,9 @@ class CAdaBoost:
                 histoNeg += epsilon
                 
                 # 最優秀識別器の信頼性を算出
-                if self.__adaType == "Real":
+                if self.__saturate == False:
                     h = np.log(histoPos[bestDet] + epsilon )/(histoNeg[bestDet] + epsilon)
-                elif self.__adaType == "SaturatedReal":
+                else:
                     alpha = 0.4
                     expPos = np.power(histoPos[bestDet], alpha) + self.__regularize
                     expNeg = np.power(histoNeg[bestDet], alpha) + self.__regularize
@@ -425,8 +428,9 @@ class CAdaBoost:
                 trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
                 remainDetIDList = np.delete(remainDetIDList, bestDet)
 
-                if (0 == (w + 1) % 1) or (w + 1 == detLen):
-                    print("boosting weak detector:", w + 1)
+                if self.__verbose:
+                    if (0 == (w + 1) % 1) or (w + 1 == detLen):
+                        print("boosting weak detector:", w + 1)
             
                 assert(not np.any(np.isnan(strongDetBin)))
                 assert(not np.any(np.isnan(strongDetID)))
@@ -453,14 +457,13 @@ class CAdaBoost:
             if not self.__GetFeatureLength:
                 assert(0)
             self.__testScoreMat = np.empty((0,self.__GetFeatureLength()),float)
-            for img in inImgList:
+
+            featVec = np.empty(0,float)
+            for detector in self.__detectorList:
+                self.__testScoreMat = np.append(self.__testScoreMat, detector.calc(inImgList),axis=0)
             
-                featVec = np.empty(0,float)
-                for detector in self.__detectorList:
-                    featVec = np.append(featVec,np.array(detector.calc(img)))
-                self.__testScoreMat = np.append(self.__testScoreMat,np.array([featVec]),axis=0)
-                
-                logCnt = logCnt + 1
+            logCnt = logCnt + 1
+            if self.__verbose:
                 if (0 == logCnt % 100) or (len(inImgList) == logCnt):
                     print(logCnt,"/",len(inImgList),"file was prepared for test.")
     
@@ -475,7 +478,7 @@ class CAdaBoost:
         self.__testScoreMat = np.transpose(self.__testScoreMat)
 
         finalScore = np.zeros(len(inImgList))
-        if (self.__adaType == "Real") or (self.__adaType == "SaturatedReal"):
+        if self.__adaType == "Real":
             for d in range(strongDetectorID.size):
                 selectedDetectorID = strongDetectorID[d]
                 for i in range(len(inImgList)):

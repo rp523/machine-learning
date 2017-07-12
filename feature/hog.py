@@ -44,15 +44,21 @@ class CHog:
         assert(isinstance(HogParam, CHogParam))
         self.__hogParam = HogParam
         
-    def calcEdge(self, img, bin):
-        assert(img.ndim == 2)
+    def calcEdge(self, srcImg, bin):
+        isOne = False
+        if srcImg.ndim == 2:
+            img = srcImg.reshape(1, srcImg.shape[0], srcImg.shape[1])
+            isOne = True
+        else:
+            img = srcImg
+
         # Convolutionでエッジを検出
         dxFilter = np.array(((-1, -1, -1),
-                             (0, 0, 0),
-                             (1, 1, 1)))
-        dyFilter = np.array(((-1, 0, 1),
-                             (-1, 0, 1),
-                             (-1, 0, 1)))
+                             ( 0,  0,  0),
+                             ( 1,  1,  1)))
+        dyFilter = np.array(((-1,  0,  1),
+                             (-1,  0,  1),
+                             (-1,  0,  1)))
         dy = mt.Convolution(img, dyFilter)
         dx = mt.Convolution(img, dxFilter)
         assert(not np.any(np.isnan(dy)))
@@ -62,14 +68,22 @@ class CHog:
         assert(not np.any(np.isnan(magnitude)))
 
         theta = np.arctan2(dy, dx) / np.pi * bin
-        # 真横エッジ、真縦エッジを効率良く拾うためにBin/2だけずらすを調整
+        # 真横エッジ、真縦エッジを効率良く拾うためにBin/2だけずらす調整
         theta = theta + 0.5
         # 値の範囲調整(0〜bin-1)
         theta = theta + ((1 * (theta < 0)) - (1 * (theta >= bin))) * bin 
         # int化
         theta = theta.astype(np.int) 
         assert(not np.any(np.isnan(theta)))
-        return magnitude, theta
+        
+        if isOne:
+            outM = magnitude.reshape(srcImg.shape)
+            outT = theta.reshape(srcImg.shape)
+        else:
+            outM = magnitude
+            outT = theta
+        
+        return outM, outT
        
     def calc(self, srcImg):
         

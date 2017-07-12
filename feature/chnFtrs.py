@@ -6,7 +6,6 @@ from common.mathtool import *
 from common.origLib import *
 from feature.hog import *
 from input import *
-from skimage.transform import integral_image,integrate
 
 
         
@@ -159,58 +158,71 @@ class CChnFtrs:
         out = out[np.random.randint(0, out.shape[0], total)] #超過分を削る
         return out
         
-    def __getRed(self, srcImg):
-        return srcImg.transpose(2, 0, 1)[0].reshape(1,srcImg.shape[0],srcImg.shape[1])
-    def __getGreen(self, srcImg):
-        return srcImg.transpose(2, 0, 1)[1].reshape(1,srcImg.shape[0],srcImg.shape[1])
-    def __getBlue(self, srcImg):
-        return srcImg.transpose(2, 0, 1)[2].reshape(1,srcImg.shape[0],srcImg.shape[1])
-    def __getGradHist(self, srcImg):
-        #エッジ画像は緑から作る
+    # re-order to put color the shallowest index.
+    def __getRed(self, srcImgs):
+        return srcImgs.transpose(3, 0, 1, 2)[0].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+    def __getGreen(self, srcImgs):
+        return srcImgs.transpose(3, 0, 1, 2)[1].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+    def __getBlue(self, srcImgs):
+        return srcImgs.transpose(3, 0, 1, 2)[2].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+    def __getGradHist(self, srcImgs):
+        imgNum = srcImgs.shape[0]
         edgeBin = self.__param["edgeBin"]
-        magnitude, theta = CHog.calcEdge(CHog, srcImg.transpose(2, 0, 1)[1], edgeBin)
-        gradHistCh = np.empty((edgeBin, theta.shape[0], theta.shape[1]))
+        magnitude, theta = CHog.calcEdge(CHog, srcImgs.transpose(3, 0, 1, 2)[1], edgeBin)   #エッジ画像は緑から作る
+        assert(magnitude.shape == theta.shape)
+        gradHistCh = np.empty((edgeBin, imgNum, theta.shape[1], theta.shape[2]))
         for b in range(edgeBin):
             gradHistCh[b] = magnitude * (theta == b)
-        assert(gradHistCh.ndim == 3)
+
+        # bin, imgNum, reducedH, reducedW
+        assert(gradHistCh.ndim == 4)
         
         # Convolutionによってサイズが縮んでいるので、numpyに格納すべくダミーでサイズを膨らす
-        gradHistCh = np.insert(gradHistCh, (gradHistCh.shape[1],gradHistCh.shape[1]), 0, axis = 1)
         gradHistCh = np.insert(gradHistCh, (gradHistCh.shape[2],gradHistCh.shape[2]), 0, axis = 2)
+        gradHistCh = np.insert(gradHistCh, (gradHistCh.shape[3],gradHistCh.shape[3]), 0, axis = 3)
         return gradHistCh
     '''
-    入力：画像（輝度の3次元マップ）
+    入力：画像（輝度の3次元マップ）の配列
     出力：1次元の特徴量ベクトル
     '''
-    def calc(self, srcImg):
+    def calc(self, srcImgs):
         
         srcImgH = self.__param["srcSize"]["h"]
         srcImgW = self.__param["srcSize"]["w"]
         edgeBin = self.__param["edgeBin"]
         dim = self.__param["dim"]
-        assert(isinstance(srcImg, np.ndarray))
-        assert(srcImg.ndim == 3)    # h ,w, color
-        assert(srcImg.shape == (srcImgH, srcImgW, 3))
+        imgs = np.array(srcImgs)
+        assert(imgs.ndim == 4)    # fileNum, h ,w, color
+        sampleNum = imgs.shape[0]
         
         # まずは使用するチャンネル画像を生成する
-        imgCh = np.empty((0, srcImgH, srcImgW))
+        imgCh = np.empty((0, sampleNum, srcImgH, srcImgW))
         for ch, uses in self.__param["ch"].items():
             if True == uses:
-                imgCh = np.append(imgCh, self.__imgSetFnc[ch](srcImg), axis = 0)
+                imgCh = np.append(imgCh, self.__imgSetFnc[ch](imgs).reshape(-1, sampleNum, srcImgH, srcImgW), axis = 0)
         assert(np.all(imgCh>=0))
 
         # 積分画像化する
+        intgImgCh = np.zeros((imgCh.shape[0], 
+                              imgCh.shape[1], 
+                              imgCh.shape[2] + 1,     # zero padding 
+                              imgCh.shape[3] + 1))    # zero padding
         for ch in range(imgCh.shape[0]):
-            imgCh[ch] = integral_image(imgCh[ch])
-        assert(np.all(imgCh>=0))
+            intgImgCh[ch] = MakeIntegral(imgCh[ch])
+        assert(np.all(intgImgCh>=0))
 
-        outScore = np.zeros(dim)
+        outScore = np.zeros((dim, sampleNum))
         for d in range(dim):
-            ch, x1, x2, y1, y2 = self.selectedSubWins[d]
-            outScore[d] = integrate(imgCh[ch], (y1, x1), (y2, x2)).astype(np.int)
+            ch, x0, x1, y0, y1 = self.selectedSubWins[d]
+            outScore[d] = SumFromIntegral(intg = intgImgCh[ch],
+                                          y0 = y0,
+                                          y1 = y1,
+                                          x0 = x0,
+                                          x1 = x1)
+            outScore[d] = outScore[d].astype(np.int)
         assert(np.all(outScore>=0))
             
-        return outScore
+        return outScore.T   # sampleNum x dim
 
     '''
     入力１：画像（輝度とかbinごとのエッジとか、事前に用意した一式）
