@@ -18,13 +18,6 @@ def headerFormat(prefix, info):
         return prefix + ': ' + info.filename[info.filename.rfind("/") + 1:] + ': '  + info.function + '(): line = ' + str(info.lineno) + ': '
     else:
         return prefix + ': frameinfo is None: '
-def Assert(b):
-    if not b:
-        print("================================================================================")
-        print(headerFormat('Assertion Abort!', frameinfo()))
-        print("================================================================================")
-        exit()
-    
 
 # 自動でアイテムが追加順にsortされるディクショナリ
 class dicts(dict):
