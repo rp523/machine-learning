@@ -80,7 +80,7 @@ class CAdaBoost:
             logCnt = 0;
             
             for detector in self.__detectorList:
-                a = np.array(self.__imgList)
+                self.__imgList = np.array(self.__imgList)
                 self.__trainScoreMat = np.append(self.__trainScoreMat, detector.calc(self.__imgList), axis = 0)
             
             logCnt = logCnt + 1

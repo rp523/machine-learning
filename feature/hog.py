@@ -85,7 +85,7 @@ class CHog:
         
         return outM, outT
        
-    def calc(self, srcImg):
+    def calc(self, srcImgs):
         
         cellY = self.__hogParam["Cell"]["Y"]
         cellX = self.__hogParam["Cell"]["X"]
@@ -102,68 +102,90 @@ class CHog:
         jointOR = self.__hogParam["Joint"]["OR"]
         jointXOR = self.__hogParam["Joint"]["XOR"]
         
-        assert(isinstance(srcImg, np.ndarray))
-        assert(2 == srcImg.ndim)
-        
+        if not isinstance(srcImgs, np.ndarray):
+            srcImgs = np.array(srcImgs)
+        oneImg = False
+        sampleNum = srcImgs.shape[0]
+        if 2 == srcImgs.ndim:
+            oneImg = True
+            srcImgs = srcImgs.reshape(-1, srcImgs.shape[0], srcImgs.shape[1])
+            sampleNum = 1
+        elif 3 == srcImgs.ndim:
+            pass
+        else:
+            assert(0)
+            
         # 部分画像の抽出
-        imgH = srcImg.shape[0]
-        imgW = srcImg.shape[1]
+        imgH = srcImgs.shape[1]
+        imgW = srcImgs.shape[2]
         # TODO
-        partImg = srcImg
+        partImgs = srcImgs
         
-        magnitude, theta = self.calcEdge(partImg, bin)
+        magnitude, theta = self.calcEdge(partImgs, bin) # N, y, x
         
         # reshape,mean機能だけで和が取れるようにゼロを挿入する
-        padY = cellY - theta.shape[0] % cellY
-        padX = cellX - theta.shape[1] % cellX
-        cellHeight = theta.shape[0] // cellY
-        cellWidth  = theta.shape[1] // cellX
+        padY = cellY - theta.shape[1] % cellY
+        padX = cellX - theta.shape[2] % cellX
+        cellHeight = theta.shape[1] // cellY
+        cellWidth  = theta.shape[2] // cellX
         insertY = tuple(np.arange(padY) * cellHeight)
         insertX = tuple(np.arange(padX) * cellWidth)
-        theta = np.insert(theta, insertY, 0, axis=0)
-        theta = np.insert(theta, insertX, 0, axis=1)
+        theta = np.insert(theta, insertY, 0, axis=1)
+        theta = np.insert(theta, insertX, 0, axis=2)
         assert(not np.any(np.isnan(theta)))
-        magnitude = np.insert(magnitude, insertY, 0.0, axis=0)
-        magnitude = np.insert(magnitude, insertX, 0.0, axis=1)
+        magnitude = np.insert(magnitude, insertY, 0.0, axis=1)
+        magnitude = np.insert(magnitude, insertX, 0.0, axis=2)
         assert(not np.any(np.isnan(magnitude)))
-        assert(0 == (theta.shape[0] % cellY))
-        assert(0 == (theta.shape[1] % cellX))
+        assert(0 == (theta.shape[1] % cellY))
+        assert(0 == (theta.shape[2] % cellX))
         
         # 画像の各点においてtheta-binの箇所だけ1になっているbin長さのVector行列を作る
         oneHot = np.zeros((theta.size, bin), float)
-        oneHot[np.arange(theta.size), theta.flatten()] = 1
+        oneHot[np.arange(theta.size), theta.flatten()] = 1  # N, (h x w), bin
+        oneHot = oneHot.reshape((theta.shape[0], theta.shape[1], theta.shape[2], bin))    # N, h, w, b
         assert(not np.any(np.isnan(oneHot)))
         
         # ゼロ挿入によって形が変わっているので、再度セルの大きさを計算
-        cellHeight = theta.shape[0] // cellY
-        cellWidth  = theta.shape[1] // cellX
+        cellHeight = theta.shape[1] // cellY
+        cellWidth  = theta.shape[2] // cellX
         
-        hogCube = oneHot.T.reshape(bin, theta.shape[0], theta.shape[1]) * magnitude
-        hogCube = hogCube.reshape(bin, cellY, cellHeight, cellX, cellWidth)
+        assert(oneHot.ndim == 4)
+        hogCube = oneHot.transpose(3, 0, 1, 2)                                       # (b, N, h, w)
+        hogCube = hogCube * magnitude                                               # (b, N, h, w)
+        hogCube = hogCube.reshape(bin, sampleNum, cellY, cellHeight, cellX, cellWidth)         # (b, N, cellY, cellHeight, cellX, cellWeigth)
         
-        # Indexはbin,cellY,cellXの順
-        rawHogMap = hogCube.transpose(0, 1, 3, 2, 4).sum(axis=4).sum(axis=3)
+        histMap = hogCube.transpose(1, 0, 2, 4, 3, 5) # (N, b, cellY, cellX, cellHeight, cellWidth)
+        histMap = histMap.sum(axis=5).sum(axis=4)    # (N, b, cY, cX)
         
-        # L2ノルムの計算
-        normMap = np.sqrt((rawHogMap * rawHogMap).transpose(1, 2, 0).sum(axis=2))
-
         # ブロック正規化
-        col = np.zeros((bin,blockY, blockX, cellY - blockY + 1, cellX - blockX + 1), float)
+        col = np.zeros((sampleNum,
+                        bin,
+                        blockY,
+                        blockX,
+                        cellY - blockY + 1,
+                        cellX - blockX + 1),
+                        float)
         for by in range(blockY):
             for bx in range(blockX):
-                col[:,by,bx,:,:] = rawHogMap[:,
+                col[:,:,by,bx,:,:] = histMap[:,:,
                                              by : cellY - blockY + 1 + by,
                                              bx : cellX - blockX + 1 + bx]
-        blockNorm = mt.Convolution(normMap, np.ones((blockY,blockX)))
+        col = col.transpose(2, 3, 0, 1, 4, 5)   # by, bx, N, b, cy, cx, 
+        
+        blockNorm = col.sum(axis = 1).sum(axis = 0)
+        assert(blockNorm.ndim == 4)
+        
         #ゼロ割防止のため1を足す。normが0ということはすべてのbinがゼロなので、0÷1=0でHOGの出力はゼロになる。
         blockNorm = blockNorm + 1 * (0.0 == blockNorm)
         # l2正規化を実行
         col = col / blockNorm
+        col = col.transpose(2, 3, 0, 1, 4, 5)   # N, b, by, bx, cy, cx
+        assert(col.shape == (sampleNum, bin, blockY, blockX, cellY - blockY + 1, cellX - blockX + 1))
         
-        normalizedHogMap = col.flatten()
+        normalizedHogMap = col.reshape(sampleNum, -1)
         
         assert(not np.any(np.isnan(normalizedHogMap)))
-        return normalizedHogMap.flatten()
+        return normalizedHogMap
 
         noJointLen = normalizedHogMap.size
         if jointAND:
