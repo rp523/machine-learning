@@ -21,7 +21,7 @@ class CChnFtrs:
             ch["green"] = True
             ch["blue"] = False
             ch["histGrad"] = True
-            ch["normGrad"] = False
+            #ch["normGrad"] = False
             impl["ch"] = ch
             
             impl["edgeBin"] = 8
@@ -87,10 +87,10 @@ class CChnFtrs:
                     self.__chIdx += 1
                     divW = self.__param["srcSize"]["w"]
                     divH = self.__param["srcSize"]["h"]
-                    minW = int(self.__param["min"]["w"] * self.__param["srcSize"]["w"] + 0.5) - int(self.__param["min"]["w"] == 1.0)
-                    minH = int(self.__param["min"]["h"] * self.__param["srcSize"]["h"] + 0.5) - int(self.__param["min"]["h"] == 1.0)
-                    maxW = int(self.__param["max"]["w"] * self.__param["srcSize"]["w"] + 0.5) - int(self.__param["max"]["w"] == 1.0)
-                    maxH = int(self.__param["max"]["h"] * self.__param["srcSize"]["h"] + 0.5) - int(self.__param["max"]["h"] == 1.0)
+                    minW = int(self.__param["min"]["w"] * self.__param["srcSize"]["w"] + 0.5)# - int(self.__param["min"]["w"] == 1.0)
+                    minH = int(self.__param["min"]["h"] * self.__param["srcSize"]["h"] + 0.5)# - int(self.__param["min"]["h"] == 1.0)
+                    maxW = int(self.__param["max"]["w"] * self.__param["srcSize"]["w"] + 0.5)# - int(self.__param["max"]["w"] == 1.0)
+                    maxH = int(self.__param["max"]["h"] * self.__param["srcSize"]["h"] + 0.5)# - int(self.__param["max"]["h"] == 1.0)
                     SelectedForThisCh = self.RandomSelectParam(divW = divW,
                                                                divH = divH,
                                                                minW = minW,
@@ -103,10 +103,10 @@ class CChnFtrs:
                         self.__chIdx += 1
                         divW = self.__param["srcSize"]["w"] - 2
                         divH = self.__param["srcSize"]["h"] - 2
-                        minW = int(self.__param["min"]["w"] * (self.__param["srcSize"]["w"] - 2) + 0.5) - int(self.__param["min"]["w"] == 1.0)
-                        minH = int(self.__param["min"]["h"] * (self.__param["srcSize"]["h"] - 2) + 0.5) - int(self.__param["min"]["h"] == 1.0)
-                        maxW = int(self.__param["max"]["w"] * (self.__param["srcSize"]["w"] - 2) + 0.5) - int(self.__param["max"]["w"] == 1.0)
-                        maxH = int(self.__param["max"]["h"] * (self.__param["srcSize"]["h"] - 2) + 0.5) - int(self.__param["max"]["h"] == 1.0)
+                        minW = int(self.__param["min"]["w"] * (self.__param["srcSize"]["w"] - 2) + 0.5)# - int(self.__param["min"]["w"] == 1.0)
+                        minH = int(self.__param["min"]["h"] * (self.__param["srcSize"]["h"] - 2) + 0.5)# - int(self.__param["min"]["h"] == 1.0)
+                        maxW = int(self.__param["max"]["w"] * (self.__param["srcSize"]["w"] - 2) + 0.5)# - int(self.__param["max"]["w"] == 1.0)
+                        maxH = int(self.__param["max"]["h"] * (self.__param["srcSize"]["h"] - 2) + 0.5)# - int(self.__param["max"]["h"] == 1.0)
                         SelectedForThisCh = self.RandomSelectParam(divW = divW,
                                                                    divH = divH,
                                                                    minW = minW,
@@ -131,7 +131,7 @@ class CChnFtrs:
         assert(isinstance(total, int))
         
         out = np.empty((0, 5), int)  # ch, xMin, xMax, yMin, yMax
-        pch = total // len(randomSelectParamList)
+        pch = total // len(randomSelectParamList)   # average dim per channel
 
         while out.shape[0] < total:
             chIdx = 0
@@ -145,30 +145,39 @@ class CChnFtrs:
                 h = y[np.arange(pch), 1] - y[np.arange(pch), 0] + 1
                 
                 # 最大、最小の制限をクリアするサブWindowsのみ抽出
-                limitIdx = (w >= param["min"]["w"]) * (w <= param["max"]["w"]) * (h >= param["min"]["h"]) * (w <= param["max"]["h"])
+                limitIdx = (w >= param["min"]["w"])\
+                         * (w <= param["max"]["w"])\
+                         * (h >= param["min"]["h"])\
+                         * (h <= param["max"]["h"])
                 limitIdx = limitIdx.astype(np.bool)
+                
+                # shape is (winNum x 4).
+                # Here 4 is composed of (xMin, xMax, yMin, yMax)
                 cand = np.append(x[limitIdx], y[limitIdx], axis = 1)
 
                 assert(cand.ndim == 2)
                 assert(cand.shape[1] == 4)
                 cand = np.insert(cand, 0, chIdx, axis=1)
+                assert(cand.shape[1] == 5)
                 out = np.append(out, cand, axis = 0)
                 chIdx += 1
             out = extractUniqueRows(out)    # 重複した分は除く
-        out = out[np.random.randint(0, out.shape[0], total)] #超過分を削る
+        out = out[:total] #超過分を削る
         return out
         
     # re-order to put color the shallowest index.
     def __getRed(self, srcImgs):
-        return srcImgs.transpose(3, 0, 1, 2)[0].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+        return srcImgs.transpose(3, 0, 1, 2)[0]#.reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
     def __getGreen(self, srcImgs):
-        return srcImgs.transpose(3, 0, 1, 2)[1].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+        return srcImgs.transpose(3, 0, 1, 2)[1]#.reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
     def __getBlue(self, srcImgs):
-        return srcImgs.transpose(3, 0, 1, 2)[2].reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
+        return srcImgs.transpose(3, 0, 1, 2)[2]#.reshape(srcImgs.shape[0],srcImgs.shape[1],srcImgs.shape[2])
     def __getGradHist(self, srcImgs):
         imgNum = srcImgs.shape[0]
         edgeBin = self.__param["edgeBin"]
-        magnitude, theta = CHog.calcEdge(CHog, srcImgs.transpose(3, 0, 1, 2)[1], edgeBin)   #エッジ画像は緑から作る
+        magnitude, theta = CHog.calcEdge(CHog, self.__getGreen(srcImgs), edgeBin)   #エッジ画像は緑から作る
+        assert(magnitude.ndim == 3)
+        assert(theta.ndim == 3)
         assert(magnitude.shape == theta.shape)
         gradHistCh = np.empty((edgeBin, imgNum, theta.shape[1], theta.shape[2]))
         for b in range(edgeBin):
@@ -180,9 +189,12 @@ class CChnFtrs:
         # Convolutionによってサイズが縮んでいるので、numpyに格納すべくダミーでサイズを膨らす
         gradHistCh = np.insert(gradHistCh, (gradHistCh.shape[2],gradHistCh.shape[2]), 0, axis = 2)
         gradHistCh = np.insert(gradHistCh, (gradHistCh.shape[3],gradHistCh.shape[3]), 0, axis = 3)
+        assert(srcImgs.shape[0] == gradHistCh.shape[1])
+        assert(srcImgs.shape[1] == gradHistCh.shape[2] == self.__param["srcSize"]["h"])
+        assert(srcImgs.shape[2] == gradHistCh.shape[3] == self.__param["srcSize"]["w"])
         return gradHistCh
     '''
-    入力：画像（輝度の3次元マップ）の配列
+    入力：画像（輝度の(1+3)次元マップ）の配列
     出力：1次元の特徴量ベクトル
     '''
     def calc(self, srcImgs):
@@ -201,7 +213,12 @@ class CChnFtrs:
             if True == uses:
                 imgCh = np.append(imgCh, self.__imgSetFnc[ch](imgs).reshape(-1, sampleNum, srcImgH, srcImgW), axis = 0)
         assert(np.all(imgCh>=0))
-
+        assert(imgCh.shape[0] == int(self.__param["ch"]["red"] == True)\
+                               + int(self.__param["ch"]["green"] == True)\
+                               + int(self.__param["ch"]["blue"] == True)\
+                               + int(self.__param["ch"]["histGrad"] == True) * self.__param["edgeBin"])
+        # Now shape of imgCh is (ch, N, H, W)
+        
         # 積分画像化する
         intgImgCh = np.zeros((imgCh.shape[0], 
                               imgCh.shape[1], 
@@ -219,17 +236,17 @@ class CChnFtrs:
                                           y1 = y1,
                                           x0 = x0,
                                           x1 = x1)
-            outScore[d] = outScore[d].astype(np.int)
+        outScore = outScore.astype(np.int)
         assert(np.all(outScore>=0))
             
-        return outScore.T   # sampleNum x dim
+        return outScore.T   # shape : (sampleNum x dim)
 
     '''
-    入力１：画像（輝度とかbinごとのエッジとか、事前に用意した一式）
-    入力２：計算パラメタ
-    出力：floatスコア値
-    '''
+    #入力１：画像（輝度とかbinごとのエッジとか、事前に用意した一式）
+    #入力２：計算パラメタ
+    #出力：floatスコア値
     def calcScore(self, ch, para):
+        assert(0)
         if "edge" == para["channel"]:
             return np.average(\
             ch[para["edge"]]\
@@ -241,7 +258,7 @@ class CChnFtrs:
             ch[para["channel"]]\
             [para["y"] : para["y"] + para["h"]]\
             [para["x"] : para["x"] + para["w"]])
-            
+    '''
    
     def GetFeatureLength(self):
         return self.__param["dim"]
