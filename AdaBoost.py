@@ -142,7 +142,7 @@ class CAdaBoost:
 
         detectorNum = self.__trainScoreMat.shape[0]
         sampleNum   = self.__trainScoreMat.shape[1]
-        detLen = min(self.__loopNum,detectorNum)
+        adaLoop = min(self.__loopNum,detectorNum)
  
         # スコア行列をPos/Negで分ける
         trainPosScore, trainNegScore = self.__PosNegDevide(self.__trainScoreMat, self.__labelList)
@@ -158,8 +158,8 @@ class CAdaBoost:
         assert(negSampleWeight.size == negSample)
     
         # 強識別器情報の記録メモリを確保
-        strongDetBin = np.zeros((detLen,self.__bin),float)
-        strongDetID = np.zeros(detLen,int)
+        strongDetBin = np.zeros((adaLoop,self.__bin),float)
+        strongDetID = np.zeros(adaLoop,int)
 
         if self.__adaType == "RealTree":
             
@@ -189,6 +189,7 @@ class CAdaBoost:
             nodes = []
             sampleIndexes = np.arange(sampleNum)
             
+            assert(self.__trainScoreMat.shape[0] == detectorNum)
             for d in range(detectorNum):
                 assert(np.min(self.__trainScoreMat[d]) != np.max(self.__trainScoreMat[d]))
                 assert(np.min(labelList) != np.max(labelList))
@@ -198,7 +199,10 @@ class CAdaBoost:
                                             sampleIndexes = sampleIndexes[sortIndex],
                                             maxDepth = self.__treeDepth,
                                             regDataDist = self.__regDataDist)
-                
+                if (len(node.getThresh()) <= 0):
+                    print(node.getThresh())
+                    print(self.__trainScoreMat[d][sortIndex])
+                    print(labelList[sortIndex])
                 assert(len(node.getThresh()) > 0)
                 if(np.max(node.getThresh()) == np.min(node.getThresh())):
                     print(node.getThresh())
@@ -227,7 +231,7 @@ class CAdaBoost:
                 assignedListMat.append(assignedList)
 
             # 指定数だけ弱識別器をブースト選択するループ
-            for w in range(detLen):
+            for w in range(adaLoop):
                 
                 # ブーストの過程で長さを変えない
                 assert(sampleWeights.size == sampleNum)
@@ -317,7 +321,7 @@ class CAdaBoost:
 
             detIdxSaved = np.arange(detectorNum)
             detIdx = detIdxSaved    
-            self.__detWeights = np.empty(detLen)
+            self.__detWeights = np.empty(adaLoop)
 
             sampleWeights = np.ones(sampleNum) / sampleNum
             assert(sampleWeights.size == sampleNum)
@@ -325,7 +329,7 @@ class CAdaBoost:
             yfMatSaved = (scoreMat * self.__labelList).astype(np.int)
             yfMat = yfMatSaved
             
-            for w in range(detLen):
+            for w in range(adaLoop):
                 
                 assert(detIdx.size == yfMat.shape[0])
                 errorSum = np.sum(sampleWeights * (yfMat < 0), axis = 1)
@@ -375,7 +379,7 @@ class CAdaBoost:
             assert(not (trainPosBin < 0).any())
             assert(not (trainNegBin < 0).any())
 
-            for w in range(detLen):
+            for w in range(adaLoop):
 
                 # まだAdaBoostに選択されず残っている識別器の数
                 detRemain = trainPosBin.shape[0]
@@ -429,7 +433,7 @@ class CAdaBoost:
                 remainDetIDList = np.delete(remainDetIDList, bestDet)
 
                 if self.__verbose:
-                    if (0 == (w + 1) % 1) or (w + 1 == detLen):
+                    if (0 == (w + 1) % 1) or (w + 1 == adaLoop):
                         print("boosting weak detector:", w + 1)
             
                 assert(not np.any(np.isnan(strongDetBin)))
