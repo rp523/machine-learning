@@ -154,37 +154,63 @@ class CHog:
         hogCube = hogCube * magnitude                                               # (b, N, h, w)
         hogCube = hogCube.reshape(bin, sampleNum, cellY, cellHeight, cellX, cellWidth)         # (b, N, cellY, cellHeight, cellX, cellWeigth)
         
-        histMap = hogCube.transpose(1, 0, 2, 4, 3, 5) # (N, b, cellY, cellX, cellHeight, cellWidth)
-        histMap = histMap.sum(axis=5).sum(axis=4)    # (N, b, cY, cX)
+        histMap = hogCube.transpose(1, 0, 2, 4, 3, 5)
+        assert(histMap.shape == (sampleNum,
+                                 bin,
+                                 cellY,
+                                 cellX,
+                                 cellHeight,
+                                 cellWidth))
+
+        histMap = histMap.sum(axis=5).sum(axis=4)
+        assert(histMap.shape == (sampleNum,
+                                 bin,
+                                 cellY,
+                                 cellX))
         
         # ブロック正規化
-        col = np.zeros((sampleNum,
-                        bin,
-                        blockY,
+        col = np.zeros((blockY,
                         blockX,
+                        sampleNum,
+                        bin,
                         cellY - blockY + 1,
                         cellX - blockX + 1),
                         float)
         for by in range(blockY):
             for bx in range(blockX):
-                col[:,:,by,bx,:,:] = histMap[:,:,
-                                             by : cellY - blockY + 1 + by,
-                                             bx : cellX - blockX + 1 + bx]
-        col = col.transpose(2, 3, 0, 1, 4, 5)   # by, bx, N, b, cy, cx, 
+                col[by,bx,:,:,:,:] = histMap[:,:,
+                                             by : by + cellY - blockY + 1,
+                                             bx : bx + cellX - blockX + 1]
         
-        blockNorm = col.sum(axis = 1).sum(axis = 0)
-        assert(blockNorm.ndim == 4)
+        # bin, by, bxについて二乗和
+        blockNorm = np.sqrt((col ** 2).sum(axis = 3).sum(axis = 1).sum(axis = 0))
+        assert(blockNorm.shape == (sampleNum, cellY - blockY + 1, cellX - blockX + 1))
         
         #ゼロ割防止のため1を足す。normが0ということはすべてのbinがゼロなので、0÷1=0でHOGの出力はゼロになる。
         blockNorm = blockNorm + 1 * (0.0 == blockNorm)
         # l2正規化を実行
+        col = col.transpose(0, 1, 3, 2, 4, 5)
+        assert(col.shape == (blockY,
+                             blockX,
+                             bin,
+                             sampleNum,
+                             cellY - blockY + 1,
+                             cellX - blockX + 1))
+
         col = col / blockNorm
-        col = col.transpose(2, 3, 0, 1, 4, 5)   # N, b, by, bx, cy, cx
-        assert(col.shape == (sampleNum, bin, blockY, blockX, cellY - blockY + 1, cellX - blockX + 1))
+        
+        col = col.transpose(3, 0, 1, 2, 4, 5)
+        assert(col.shape == (sampleNum,
+                             blockY,
+                             blockX,
+                             bin,
+                             cellY - blockY + 1,
+                             cellX - blockX + 1))
         
         normalizedHogMap = col.reshape(sampleNum, -1)
         
         assert(not np.any(np.isnan(normalizedHogMap)))
+        
         return normalizedHogMap
 
         noJointLen = normalizedHogMap.size
