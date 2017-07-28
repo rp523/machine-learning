@@ -4,34 +4,32 @@ from common.origLib import *
 
 def distriEntropy(distri):
     assert(isinstance(distri, np.ndarray))
-    prob = distri / np.sum(distri)
+    prob = distri / np.sum(distri)  # Normalize
     nonZeroPart = prob[prob != 0.0]
     return - (np.sum(nonZeroPart * np.log(nonZeroPart))) / np.log(distri.size)
 
 class DecisionTree:
     
-    def __init__(self, maxDepth, scoreMat, labelVec, sampleIndexes = None):
+    def __init__(self, maxDepth, scoreMat, labelVec, regDataDist = None):
         assert(isinstance(maxDepth, int))
         assert(isinstance(scoreMat, np.ndarray))
         assert(scoreMat.ndim == 2)
         assert(isinstance(labelVec, np.ndarray))
         assert(labelVec.ndim == 1)
-        assert(scoreMat.shape[1] == labelVec.shape[0])
+        assert(scoreMat.shape[1] == labelVec.size)
         
-        if sampleIndexes != None:
-            indexes = sampleIndexes
-        else:
-            indexes = np.arange(len(labelVec))
         # scoreMatは(特徴次元 x サンプル数)の形であることが前提
         
+        sampleNum = scoreMat.shape[0]
         self.nodes = []
-        for f in range(scoreMat.shape[0]):
-            score_sort_index = np.argsort(scoreMat[f])
+        for f in range(sampleNum):
+            scoreVec = scoreMat[f]
+            score_sort_index = np.argsort(scoreVec)
             self.nodes.append(\
-                   self.Node(scoreVec = scoreMat[f][score_sort_index],   # スコア昇順
+                   self.Node(scoreVec = scoreVec[score_sort_index],   # スコア昇順
                              labelVec = labelVec[score_sort_index],  # スコアの順番変更とひも付け
                              maxDepth = maxDepth,
-                             sampleIndexes = indexes))
+                             regDataDist = regDataDist))
     
     def predict(self, featureIdxs, scores):
         assert(isinstance(featureIdxs, np.ndarray))
@@ -63,97 +61,97 @@ class DecisionTree:
                      scoreVec,
                      labelVec,
                      maxDepth,
-                     sampleIndexes = None,
                      parentDepth = None,
                      threshMin = None,
-                     threshMax = None):
+                     threshMax = None,
+                     regDataDist = None):
+            
             assert(isinstance(scoreVec, np.ndarray))
             assert(scoreVec.ndim == 1)
             assert(isinstance(labelVec, np.ndarray))
             assert(labelVec.ndim == 1)
-            assert(scoreVec.size == labelVec.size == len(list(sampleIndexes)))
+            assert(scoreVec.size == labelVec.size)
             assert((scoreVec == np.sort(scoreVec)).all())
-            Assert(labelVec.size > 0)
+            assert(labelVec.size > 0)
 
             if parentDepth != None:
                 self.__myDepth = parentDepth + 1  # 親ノードより１層深い
             else:
-                self.__myDepth = 0  # 自身が一番上
+                self.__myDepth = 0  # 特に引数での指定がなければ、自身が一番上
+                
             self.__maxDepth = maxDepth  # 最大深さは親から子へそのまま伝承する
             self.__childL = None
             self.__childR = None
             self.__majority = None
             self.__thresh = None
-            self.__assignedIndexes = sampleIndexes
-            self.__isTerminal = None
+            self.__isTerminal = False
+            self.__average = None
             
-            labels = np.unique(labelVec);
-            labelNum = labels.size
+            uniqueLabels = np.unique(labelVec);
+            uniqueLabelNum = uniqueLabels.size
+            
+            # unique label number must be larger than ZERO
+            assert(uniqueLabelNum > 0)
 
-            if labelNum == 0:
-                Assert(False)
-                pass
-                # サンプルが割り振られていない
-            elif labelNum == 1:
+            if uniqueLabelNum == 1:
+                # 割り振られたサンプルが全て同一のクラスなので、
                 # 自分がターミナルノードになる(完全に分割が完了)
-                self.__majority = labels[0]
-            elif labelNum > 1:
+                self.__isTerminal = True
 
-                thresh = self.__calcBestThresh(scoreVec, labelVec)
-                valid = True
-                if threshMin != None:
-                    if thresh <= threshMin:
-                        valid = False
-                if threshMax != None:
-                    if thresh >= threshMax:
-                        valid = False
-                if not (scoreVec <= thresh).any():
-                    valid = False
-                if not (scoreVec >  thresh).any():
-                    valid = False
-                        
-                if (np.max(scoreVec) == np.min(scoreVec))\
-                  or not valid\
-                  or (self.__myDepth == maxDepth):
+            elif uniqueLabelNum > 1:
 
-                    # 自分がターミナルノードになる(まだ分割が済んでいない)
-                    # 多数決で代表ラベルを決める
-                    labelCount = np.zeros(labelNum)
-                    for l in range(labelNum):
-                        labelCount[l] = np.sum(labelVec == labels[l])
-                    self.__majority = labels[np.argmax(labelCount)]
-
-                elif labelNum >= 2:
-                
-                    # さらに深い子ノードを作れる
-                    self.__thresh = thresh
-                    assert(isinstance(self.__thresh, float))
+                if (np.max(scoreVec) == np.min(scoreVec)):
+                    self.__isTerminal = True
+                elif self.__myDepth == maxDepth:
+                    self.__isTerminal = True
+                else:
+                    thresh = self.__calcBestThresh(scoreVec, labelVec, regDataDist)
+                    if threshMin != None:
+                        if thresh <= threshMin:
+                            self.__isTerminal = True
+                    elif threshMax != None:
+                        if thresh >= threshMax:
+                            self.__isTerminal = True
+                    elif not (scoreVec <= thresh).any():
+                        self.__isTerminal = True
+                    elif not (scoreVec >  thresh).any():
+                        self.__isTerminal = True
                     
-                    assignL = None
-                    assignR = None
-                    if sampleIndexes != None:
-                        assignL = sampleIndexes[scoreVec <= self.__thresh]
-                        assignR = sampleIndexes[scoreVec >  self.__thresh]
-                        Assert(len(assignL) + len(assignR) == len(sampleIndexes))
-                    self.__childL = DecisionTree.Node(scoreVec = scoreVec[scoreVec <= self.__thresh],
-                                            labelVec = labelVec[scoreVec <= self.__thresh],
-                                            sampleIndexes = assignL,
-                                            parentDepth = self.__myDepth,
-                                            maxDepth = self.__maxDepth,
-                                            threshMin = threshMin,
-                                            threshMax = thresh)
-                    self.__childR = DecisionTree.Node(scoreVec = scoreVec[scoreVec > self.__thresh],
-                                            labelVec = labelVec[scoreVec > self.__thresh],
-                                            sampleIndexes = assignR,
-                                            parentDepth = self.__myDepth,
-                                            maxDepth = self.__maxDepth,
-                                            threshMin = thresh,
-                                            threshMax = threshMax)
+            if self.__isTerminal:
+
+                # 自分がターミナルノードになる(まだ分割が済んでいない)
+                # 多数決で代表ラベルを決める
+                labelCounter = np.zeros(uniqueLabelNum)
+                for l in range(uniqueLabelNum):
+                    labelCounter[l] = np.sum(labelVec == uniqueLabels[l])
+                self.__majority = uniqueLabels[np.argmax(labelCounter)]
+                self.__average = np.average(labelVec)
+
+            else:
+            
+                # さらに深い子ノードを作れる
+                self.__thresh = thresh
+                assert(isinstance(self.__thresh, float))
+                
+                self.__childL = DecisionTree.Node(scoreVec = scoreVec[scoreVec <= self.__thresh],
+                                        labelVec = labelVec[scoreVec <= self.__thresh],
+                                        parentDepth = self.__myDepth,
+                                        maxDepth = self.__maxDepth,
+                                        threshMin = threshMin,
+                                        threshMax = thresh,
+                                        regDataDist = regDataDist)
+                self.__childR = DecisionTree.Node(scoreVec = scoreVec[scoreVec > self.__thresh],
+                                        labelVec = labelVec[scoreVec > self.__thresh],
+                                        parentDepth = self.__myDepth,
+                                        maxDepth = self.__maxDepth,
+                                        threshMin = thresh,
+                                        threshMax = threshMax,
+                                        regDataDist = regDataDist)
                     
         def predict(self, score):
             assert(np.array(score).size == 1)
-            if not self.__thresh:
-                # ターミナルノードか、またはラベルが完全純粋
+            if self.__isTerminal:
+                # ターミナルノード
                 return self.__majority
             elif self.__thresh >= score:
                 return self.__childL.predict(score)
@@ -178,65 +176,63 @@ class DecisionTree:
             
             return out
 
-        def getAssigned(self):
-
-            out = []
-            if self.__thresh:
-                left_assigned  = self.__childL.getAssigned()
-                right_assigned = self.__childR.getAssigned()
-                for la in left_assigned:
-                    assert(isinstance(la, list))
-                for ra in right_assigned:
-                    assert(isinstance(ra, list))
-                
-                out = out + left_assigned
-                out = out + right_assigned
-            else:
-                self_assigned = list(self.__assignedIndexes)
-                if len(self_assigned) > 0:
-                    out.append(self_assigned)
-            assert(isinstance(out, list))
-            return out
-
-        def __calcBestThresh(self, scoreVec, labelVec):
+        def __calcBestThresh(self, scoreVec, labelVec, regDataDist = None):
             assert(isinstance(scoreVec, np.ndarray))
             assert(isinstance(labelVec, np.ndarray))
             assert(scoreVec.ndim == 1)
             assert(scoreVec.ndim == 1)
             assert(scoreVec.size == labelVec.size)
-            assert((scoreVec == np.sort(scoreVec)).all())
+            assert(np.min(scoreVec) != np.max(scoreVec))
+            assert((scoreVec == np.sort(scoreVec)).all())   # check if sorted
+            
+            self.__regDataDist = 0.0
+            if regDataDist:
+                self.__regDataDist = regDataDist
                 
             # 既にスコアはソート済であること、ラベルの順番はスコアと紐付いていることが前提
             datNum = scoreVec.size
-            labels = np.unique(labelVec)    # 付与されたラベル。(-1,1)かもしれないし(0,1,2)かもしれない
-            labelNum = labels.size
-            assert(labelNum > 1)
+            uniqueLabels = np.unique(labelVec)    # 付与されたラベル。(-1,1)かもしれないし(0,1,2)かもしれない
+            uniqueLabelNum = uniqueLabels.size
+            assert(uniqueLabelNum > 1)
     
-            divUp = 0
-            inpurityMin = 1e5  # 最初はありえない値を代入しておく(inpurityは１より小さい）
-    
-            for d in range(1, datNum):
-                rateL = np.empty(labelNum)
-                rateR = np.empty(labelNum)
-                for l in range(labelNum):
-                    assert(labelVec[:d].size == d)
-                    assert(labelVec[d:].size == datNum - d)
-                    assert(labelVec[:d].size + labelVec[d:].size == datNum)
-                    rateL[l] = np.sum(labelVec[:d] == labels[l]) / d
-                    rateR[l] = np.sum(labelVec[d:] == labels[l]) / (datNum - d)
-    
-                # 分類クラスごとのジニ係数をサンプル数を重みとして平均
-                # ジニ不純度を使う
-                inpurity = ((1.0 - np.sum(rateL * rateL)) * d + (1.0 - np.sum(rateR * rateR)) * (datNum - d)) / datNum
-                inpurity -= distriEntropy(np.array([d, datNum - d]))    # データ分布も考慮
-                #assert(1.0 >= inpurity >= 0.0)
-                
-                # update the mimimum of inpurity.
-                if inpurityMin > inpurity:
-                    inpurityMin = inpurity
-                    divUp = d
-            out = 0.5 * (scoreVec[divUp - 1] + scoreVec[divUp])
+            filterL = np.tri(datNum)[:-1].astype(np.bool)   # 左グループへの分類[全パターン]
+            filterR = np.bitwise_not(filterL)               # 右グループへの分類[全パターン]
+            
+            labelMat = np.empty((datNum - 1, datNum))       # 全パターンのトライ用にラベルVectorをコピー
+            labelMat[np.arange(datNum - 1)] = labelVec
+            
+            assignMatL = (labelMat * filterL).astype(np.int)    # 実際にラベルを左グループに分類[全パターン]
+            assignMatR = (labelMat * filterR).astype(np.int)    # 実際にラベルをグループに分類[全パターン]
+            
+            assignLNum = np.arange(1, datNum)   # 左グループへの分類数[全パターン]
+            assignRNum = datNum - assignLNum    # 右グループへの分類数[全パターン]
+            
+            # 左右グループへのラベル分配率
+            assignRateL = np.empty((uniqueLabelNum, datNum - 1))
+            assignRateR = np.empty((uniqueLabelNum, datNum - 1))
+            for l in range(uniqueLabelNum):
+                assignRateL[l] = np.sum(assignMatL == uniqueLabels[l], axis = 1) / assignLNum
+                assignRateR[l] = np.sum(assignMatR == uniqueLabels[l], axis = 1) / assignRNum
+            
+            # ジニ不純度を計算
+            giniInpurity = \
+            (1 - np.sum(assignRateL ** 2, axis = 0)) * assignLNum +\
+            (1 - np.sum(assignRateR ** 2, axis = 0)) * assignRNum
+            giniInpurity /= datNum
+            
+            # ジニ純度を計算
+            giniPurity = 1.0 - giniInpurity
+            
+            # scoreが同じサンプルの間で分けてはいけない
+            # the same as right
+            sameIdxR = scoreVec[:datNum - 1] == scoreVec[1:]
+            giniPurity[sameIdxR] = -1
+            
+            giniDivIdx = (giniPurity.argmax())
+            out = 0.5 * (scoreVec[giniDivIdx] + scoreVec[giniDivIdx + 1])
             assert(np.array(out).size == 1)
+            assert(np.min(scoreVec) < out)
+            assert(np.max(scoreVec) > out)
             return out
 
 if "__main__" == __name__:

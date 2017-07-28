@@ -92,7 +92,7 @@ class CAdaBoost:
             dict["trainScore"] = self.__trainScoreMat
             dict["trainLabel"] = self.__labelList
             sio.savemat("Train.mat", dict)
-
+            
         else:
             self.__trainScoreMat = np.asarray(sio.loadmat("Train.mat")["trainScore"])
 
@@ -196,7 +196,6 @@ class CAdaBoost:
                 sortIndex = np.argsort(self.__trainScoreMat[d])
                 node = DecisionTree.Node(   scoreVec = self.__trainScoreMat[d][sortIndex],
                                             labelVec = labelList[sortIndex],
-                                            sampleIndexes = sampleIndexes[sortIndex],
                                             maxDepth = self.__treeDepth,
                                             regDataDist = self.__regDataDist)
                 if (len(node.getThresh()) <= 0):
