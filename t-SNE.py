@@ -2,7 +2,8 @@
 import numpy as np
 from input import *
 from matplotlib import pyplot as plt
-
+from preproc import *
+from feature.hog import *
 
 class CtSNE:
 
@@ -258,17 +259,43 @@ if "__main__" == __name__:
     # prepare class for t-SNE
     tSNE = CtSNE(mapDim = 2,
                  perplexity = 50,
-                 loop = 100)
+                 loop = 1000)
     
+    # prepare toy datasets
+    dat = np.empty(0)
+    label = np.empty(0)
+    print("Reading Start.")
+    imgs = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos") / 255
+    imgs  = imgs[:]
+    print("Finished reading.", imgs.shape)
+    hogParam = CHogParam()
+    hogParam["Bin"] = 8
+    hogParam["Cell"]["X"] = 6
+    hogParam["Cell"]["Y"] = 12
+    hogParam["Block"]["X"] = 1
+    hogParam["Block"]["Y"] = 1
+    hog = CHog(hogParam)
+    grayImgs = RGB2Gray(imgs, "green")
+    x = hog.calc(grayImgs)
+    print("finished calc hog.", x.shape)
+    y = tSNE(x)
+
+    # draw results
+    plt.figure()
+    plt.plot(y.T[0], y.T[1], ".")
+    plt.legend()
+    plt.show()
+
+    '''
     # prepare toy datasets
     dat = np.empty(0)
     label = np.empty(0)
     print("Reading Start.")
     for i in range(10):
         print("Reading: ", str(i))
-        eval = dirPath2NumpyArray("dataset/mnist/eval/" + str(i)) / 255
+        eval = dirPath2NumpyArray("dataset/mnist/learn/" + str(i)) / 255
         #index = np.arange(eval.shape[0])
-        index = np.random.choice(np.arange(eval.shape[0]), 100, replace=False)
+        index = np.random.choice(np.arange(eval.shape[0]), 200, replace=False)
         eval = eval[index]
         if 0 == dat.size:
             dat = np.empty((0, eval.size // eval.shape[0]))
@@ -285,5 +312,5 @@ if "__main__" == __name__:
         plt.plot(plotY.T[0], plotY.T[1], ".", label = str(i))
     plt.legend()
     plt.show()
-
+    '''
     print("Done.")
