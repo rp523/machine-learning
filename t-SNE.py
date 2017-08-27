@@ -173,6 +173,9 @@ class CtSNE:
         for i in range(sampleNum):
             #print("Making feature-distance matrix: ", i + 1, "/", sampleNum)
             diffX2[i] = np.sum((x - x[i]) ** 2, axis = 1)
+            logInt = 10
+            if (i % logInt == logInt - 1) or (i == sampleNum - 1):
+                print("calculate feature pair distance^2: ({}/{})".format(i + 1, sampleNum))
         return diffX2
 
     # calculate squared feature distance in low-dimensional (mapped) space
@@ -198,24 +201,25 @@ class CtSNE:
         assert((sqDist == sqDist.T).all())
         
         sampleNum = sqDist.shape[0]
+        diagIdx = np.eye(sampleNum).astype(np.bool)
+        offDiagIdx = np.bitwise_not(diagIdx)
 
-        power = (-1.0) * (sqDist / (2 * sqSigma.reshape(-1, 1)))
+        power = (-1.0) * (sqDist / (2 * sqSigma.reshape(sampleNum, 1)))
 
-        power = power - np.max(power, axis = 1)   # オーバーフロー防止
+        # exp演算のアンダーフロー対策してないけど、やったほうがいいかも
         neighbor = np.exp(power)
-        assert((neighbor > 0.0).all())
-
         # 対角成分をゼロとする
-        neighbor[np.eye(sampleNum).astype(np.bool)] = 0.0
+        neighbor[diagIdx] = 0.0
+        assert((neighbor[offDiagIdx] > 0.0).all())
         assert(neighbor.shape == (sampleNum, sampleNum))
-        bunbo = np.sum(neighbor, axis = 1)
-        assert(bunbo.shape == (sampleNum,))
+
+        bunbo = np.sum(neighbor, axis = 1).reshape(sampleNum, 1)
+        assert(bunbo.shape == (sampleNum, 1))
         assert((bunbo > 0.0).all())
 
-        prob = neighbor / bunbo.reshape(-1, 1)
-        
+        prob = neighbor / bunbo
         assert(prob.shape == (sampleNum, sampleNum))
-        assert((0.0 < prob[np.bitwise_not(np.eye(sampleNum).astype(bool))]).all())        
+        assert((0.0 < prob[offDiagIdx]).all())        
 
         return prob
 
@@ -228,18 +232,23 @@ class CtSNE:
         assert(not np.isnan(sqDist).any())
         
         sampleNum = sqDist.shape[0]
+        diagIdx = np.eye(sampleNum).astype(np.bool)
+        offDiagIdx = np.bitwise_not(diagIdx)
 
+        # t-分布
         neighbor = 1.0 / (1.0 + sqDist)
 
         # 対角成分をゼロとする
-        neighbor[np.eye(sampleNum).astype(np.bool)] = 0.0
+        neighbor[diagIdx] = 0.0
         assert(neighbor.shape == (sampleNum, sampleNum))
+        assert((neighbor[offDiagIdx] > 0.0).all())
         
-        bunbo = np.sum(neighbor) * 0.5  # i!=jを全て足しあげる
+        bunbo = np.sum(neighbor)  # i!=jを全て足しあげる
+        assert(np.array(bunbo).size == 1)
         assert(bunbo > 0.0)
         
         prob = neighbor / bunbo
-        assert((prob[np.bitwise_not(np.eye(prob.shape[0]).astype(np.bool))] > 0.0).all())
+        assert((prob[offDiagIdx] > 0.0).all())
         assert((prob <= 1.0).all())        
         
         return prob
@@ -248,8 +257,8 @@ if "__main__" == __name__:
     
     # prepare class for t-SNE
     tSNE = CtSNE(mapDim = 2,
-                 perplexity = 10,
-                 loop = 1000)
+                 perplexity = 50,
+                 loop = 100)
     
     # prepare toy datasets
     dat = np.empty(0)
@@ -259,7 +268,7 @@ if "__main__" == __name__:
         print("Reading: ", str(i))
         eval = dirPath2NumpyArray("dataset/mnist/eval/" + str(i)) / 255
         #index = np.arange(eval.shape[0])
-        index = np.random.choice(np.arange(eval.shape[0]), 50, replace=False)
+        index = np.random.choice(np.arange(eval.shape[0]), 100, replace=False)
         eval = eval[index]
         if 0 == dat.size:
             dat = np.empty((0, eval.size // eval.shape[0]))
