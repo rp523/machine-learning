@@ -2,17 +2,20 @@
 import numpy as np
 from input import *
 from matplotlib import pyplot as plt
-from preproc import *
+#from preproc import *
 from feature.hog import *
+from PIL import Image
 
 class CtSNE:
 
-    def __init__(self, mapDim, perplexity, loop):
+    def __init__(self, mapDim, perplexity, loop, saveInterval = 0, labels = None):
         self.__mapDim = mapDim
         self.__loop = loop
         self.__eta = 100
         self.__alpha = self.__selfAlpha
         self.__perp = perplexity
+        self.__saveInterval = saveInterval  # 0より大のとき、そのループ間隔で経過画像を保存する
+        self.__labels = labels
     
     def __selfAlpha(self, l):
         if l < 250:
@@ -59,12 +62,19 @@ class CtSNE:
             y = y + self.__eta * gradY + self.__alpha(l) * (y - before1)
             before1 = yOld
             
+            offDiagIdx = np.bitwise_not(np.eye(q.shape[0]).astype(np.bool))
+            kl_div = np.sum(p[offDiagIdx] * np.log(p[offDiagIdx] / q[offDiagIdx]))
             if (l % 10 == 9) or (l == self.__loop - 1):
                 assert(p.shape == q.shape)
-                noDiagIdx = np.bitwise_not(np.eye(q.shape[0]).astype(np.bool))
-                kl_div = np.sum(p[noDiagIdx] * np.log(p[noDiagIdx] / q[noDiagIdx]))
                 print("loop=", l + 1, "/", self.__loop, "kl-div=", kl_div)
         
+            if self.__saveInterval > 0:
+                if (l % self.__saveInterval == 0) or (l == self.__loop - 1):
+                    self.__saveStatus(y = y,
+                                      index = l,
+                                      kl_div = kl_div,
+                                      labels = self.__labels)
+            
         return y
     
     def __Perp2SqSigma(self, sqDist, perpTgt):
@@ -253,14 +263,36 @@ class CtSNE:
         assert((prob <= 1.0).all())        
         
         return prob
+    
+    def __saveStatus(self, y, index, kl_div = None, dst = "imgs", labels = None):
+        assert(isinstance(y, np.ndarray))
+        assert(y.ndim == 2)
+        assert(y.shape[1] == 2)
+        assert(isinstance(i, int))
+        assert(isinstance(dst, str))
+        
+        if not os.path.exists(dst):
+            os.makedirs(dst)
+        
+        title = "loop = " + str(index)
+        if not kl_div is None:
+            title = title + ", KL-div = " + str(kl_div)
+        
+        plt.clf()
+        if labels is None:
+            plt.title(title)
+            plt.plot(y.T[0], y.T[1], ".")
+        else:
+            for label in np.unique(labels):
+                pY = y[labels == label]
+                plt.plot(pY.T[0], pY.T[1], ".", label = label)
+        plt.legend()
+        plt.savefig(os.path.join(dst, "image{0:05d}.png".format(index)))
+        
 
 if "__main__" == __name__:
     
-    # prepare class for t-SNE
-    tSNE = CtSNE(mapDim = 2,
-                 perplexity = 50,
-                 loop = 1000)
-    
+    '''
     # prepare toy datasets
     dat = np.empty(0)
     label = np.empty(0)
@@ -289,20 +321,26 @@ if "__main__" == __name__:
     '''
     # prepare toy datasets
     dat = np.empty(0)
-    label = np.empty(0)
+    labels = np.empty(0)
     print("Reading Start.")
     for i in range(10):
         print("Reading: ", str(i))
-        eval = dirPath2NumpyArray("dataset/mnist/learn/" + str(i)) / 255
+        eval = dirPath2NumpyArray("dataset/mnist/eval/" + str(i)) / 255
         #index = np.arange(eval.shape[0])
         index = np.random.choice(np.arange(eval.shape[0]), 200, replace=False)
         eval = eval[index]
         if 0 == dat.size:
             dat = np.empty((0, eval.size // eval.shape[0]))
         dat = np.append(dat, eval.reshape(eval.shape[0], -1), axis = 0)
-        label = np.append(label, np.array([i] * eval.shape[0])).astype(np.int)
+        labels = np.append(labels, np.array([i] * eval.shape[0])).astype(np.int)
     print("Finished reading.")
     #x = dat.reshape(dat.shape[0], -1)
+    # prepare class for t-SNE
+    tSNE = CtSNE(mapDim = 2,
+                 perplexity = 50,
+                 loop = 1000,
+                 saveInterval = 10,
+                 labels=labels)
     y = tSNE(dat)
 
     # draw results
@@ -312,5 +350,5 @@ if "__main__" == __name__:
         plt.plot(plotY.T[0], plotY.T[1], ".", label = str(i))
     plt.legend()
     plt.show()
-    '''
+    
     print("Done.")
