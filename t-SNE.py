@@ -302,10 +302,10 @@ if "__main__" == __name__:
     print("Finished reading.", imgs.shape)
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 6
-    hogParam["Cell"]["Y"] = 12
-    hogParam["Block"]["X"] = 1
-    hogParam["Block"]["Y"] = 1
+    hogParam["Cell"]["X"] = 5
+    hogParam["Cell"]["Y"] = 10
+    hogParam["Block"]["X"] = 2
+    hogParam["Block"]["Y"] = 2
     hog = CHog(hogParam)
     grayImgs = RGB2Gray(imgs, "green")
     x = hog.calc(grayImgs)
