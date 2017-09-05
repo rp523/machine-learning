@@ -1,3 +1,5 @@
+#coding: utf-8
+import os, shutil, sys
 import numpy as np
 #from feature.hog import CHogParam,CHog
 from feature.hog import *
@@ -6,7 +8,6 @@ import common.imgtool as imt
 import common.mathtool as mt
 import pandas as pd
 import common.fileIO as fio
-import os
 import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
@@ -106,9 +107,9 @@ class CAdaBoost:
 
     # PosとNegが混在しているスコア行列からPosのみ、Negのみのスコア行列に分離する
     def __PosNegDevide(self,inScoreMat,inLabelList):
-        assert(inScoreMat.shape[1] == np.array(inLabelList).size)
-        det = inScoreMat.shape[0]
-        scoreMat = np.transpose(inScoreMat)     # 入力サンプル x 識別器
+        assert(inScoreMat.shape[0] == np.array(inLabelList).size)
+        det = inScoreMat.shape[1]
+        scoreMat = inScoreMat.copy()     # 入力サンプル x 識別器
         posScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
         negScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
         for i in range(len(inLabelList)):
@@ -117,9 +118,8 @@ class CAdaBoost:
             elif -1 == inLabelList[i]:
                 negScoreMat = np.append(negScoreMat, [scoreMat[i]],axis=0)
             else:
-                print("bug!")
-        posScoreMat = np.transpose(posScoreMat)   # 識別器 x 入力サンプル
-        negScoreMat = np.transpose(negScoreMat)   # 識別器 x 入力サンプル
+                assert(0 and "bug!")
+
         return posScoreMat, negScoreMat
         
     class Reliability:
@@ -136,20 +136,17 @@ class CAdaBoost:
         assert(isinstance(self.__trainScoreMat, np.ndarray))
         assert(self.__trainScoreMat.ndim == 2)
         assert(not np.any(self.__trainScoreMat < 0))
-        # ブースティングでは識別器ごとの性能を比較するので、
-        # 識別器IDが浅い階層に来るよう転置をとる
-        self.__trainScoreMat = np.transpose(self.__trainScoreMat)
 
-        detectorNum = self.__trainScoreMat.shape[0]
-        sampleNum   = self.__trainScoreMat.shape[1]
+        sampleNum   = self.__trainScoreMat.shape[0]
+        detectorNum = self.__trainScoreMat.shape[1]
         adaLoop = min(self.__loopNum,detectorNum)
  
         # スコア行列をPos/Negで分ける
         trainPosScore, trainNegScore = self.__PosNegDevide(self.__trainScoreMat, self.__labelList)
         assert(not np.any(trainPosScore < 0))
         assert(not np.any(trainNegScore < 0))
-        posSample = trainPosScore.shape[1]
-        negSample = trainNegScore.shape[1]
+        posSample = trainPosScore.shape[0]
+        negSample = trainNegScore.shape[0]
 
         # サンプルデータの重みを初期化
         posSampleWeight = np.array([1.0/(posSample)]*posSample)
@@ -158,8 +155,8 @@ class CAdaBoost:
         assert(negSampleWeight.size == negSample)
     
         # 強識別器情報の記録メモリを確保
-        strongDetBin = np.zeros((adaLoop,self.__bin),float)
-        strongDetID = np.zeros(adaLoop,int)
+        strongDetBin = np.zeros((adaLoop,self.__bin)).astype(np.float)
+        strongDetID = np.zeros(adaLoop).astype(np.int)
 
         if self.__adaType == "RealTree":
             
@@ -357,20 +354,11 @@ class CAdaBoost:
 
         elif self.__adaType == "Real":
             
-            '''
-            #ヒストグラム算出用のフィルタテンソルを作成
-            posBinCounter = VoteCount(binNum=self.__bin,
-                                      detectorNum=detectorNum,
-                                      sampleNum=posSample)
-            negBinCounter = VoteCount(binNum=self.__bin,
-                                      detectorNum=detectorNum,
-                                      sampleNum=negSample)
-            '''
             remainDetIDList = np.arange(detectorNum)
             
             # スコアをBIN値に換算
-            trainPosBin = (trainPosScore * self.__bin).astype(np.int64)
-            trainNegBin = (trainNegScore * self.__bin).astype(np.int64)
+            trainPosBin = (trainPosScore * self.__bin).astype(np.int)
+            trainNegBin = (trainNegScore * self.__bin).astype(np.int)
             # 万が一値がBIN値と同じ場合はBIN-1としてカウントする
             trainPosBin = trainPosBin * (trainPosBin < self.__bin) + (self.__bin - 1) * (trainPosBin >= self.__bin)   
             trainNegBin = trainNegBin * (trainNegBin < self.__bin) + (self.__bin - 1) * (trainNegBin >= self.__bin)
@@ -381,14 +369,15 @@ class CAdaBoost:
             for w in range(adaLoop):
 
                 # まだAdaBoostに選択されず残っている識別器の数
-                detRemain = trainPosBin.shape[0]
+                detRemain = trainPosBin.shape[1]
+                assert(detRemain == trainNegBin.shape[1])
                 
                 # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
                 histoPos = np.zeros((detRemain, self.__bin))
                 histoNeg = np.zeros((detRemain, self.__bin))
                 for b in range(self.__bin):
-                    histoPos[np.arange(detRemain),b] = np.dot(trainPosBin == b, posSampleWeight)
-                    histoNeg[np.arange(detRemain),b] = np.dot(trainNegBin == b, negSampleWeight)
+                    histoPos[np.arange(detRemain),b] = np.dot((trainPosBin == b).T, posSampleWeight)
+                    histoNeg[np.arange(detRemain),b] = np.dot((trainNegBin == b).T, negSampleWeight)
                 # 残っている弱識別器から最優秀のものを選択            
                 bestDet = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
                 
@@ -417,18 +406,18 @@ class CAdaBoost:
                 #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
                 reliability = self.Reliability(h)
                 # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
-                posMax = np.max(-1.0 * reliability.calc(bin=trainPosBin[bestDet]))
-                negMax = np.max( 1.0 * reliability.calc(bin=trainNegBin[bestDet]))
+                posMax = np.max(-1.0 * reliability.calc(bin = trainPosBin[bestDet]))
+                negMax = np.max( 1.0 * reliability.calc(bin = trainNegBin[bestDet]))
     
-                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin=trainPosBin[bestDet]) - posMax)
+                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]) - posMax)
                 posSampleWeight /= np.sum(posSampleWeight)
     
-                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin=trainNegBin[bestDet]) - negMax)
+                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]) - negMax)
                 negSampleWeight /= np.sum(negSampleWeight)
                 
                 # 選択除去された弱識別器の情報を次ループでは考えない
-                trainPosBin = np.delete(trainPosBin, bestDet, axis=0)
-                trainNegBin = np.delete(trainNegBin, bestDet, axis=0)
+                trainPosBin = np.delete(trainPosBin, bestDet, axis = 1)
+                trainNegBin = np.delete(trainNegBin, bestDet, axis = 1)
                 remainDetIDList = np.delete(remainDetIDList, bestDet)
 
                 if self.__verbose:
@@ -517,13 +506,15 @@ class CAdaBoost:
     
 if "__main__" == __name__:
 
-    os.system("rm *mat")
-    lp = dirPath2NumpyArray("INRIAPerson/LearnPos")
-    ln = dirPath2NumpyArray("INRIAPerson/LearnNeg")
-    ep = dirPath2NumpyArray("INRIAPerson/EvalPos")
-    en = dirPath2NumpyArray("INRIAPerson/EvalNeg")
-    learn = RGB2Gray(lp + ln, "green")
-    eval  = RGB2Gray(ep + en, "green")
+    for matFile in  GetFileList(".", includingText = ".mat"):
+        os.remove(matFile)
+
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:100]
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:100]
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:100]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:100]
+    learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
+    eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
@@ -534,10 +525,10 @@ if "__main__" == __name__:
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
 
-    adaBoostParam = AdaBoostParam
-    AdaBoostParam["Bin"] = 10000
-    AdaBoostParam["Regularizer"] = 1e-5
-    AdaBoostParam["Bin"] = 32
+    adaBoostParam = AdaBoostParam()
+    adaBoostParam["Regularizer"] = 1e-5
+    adaBoostParam["Bin"] = 32
+    adaBoostParam["Type"].setTrue("Real")
 
     AdaBoost = CAdaBoost(inAdaBoostParam=adaBoostParam,
                          inImgList=learn,
