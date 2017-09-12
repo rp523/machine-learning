@@ -31,23 +31,9 @@ class AdaBoostParam(CParam):
         setDicts["TreeDepth"] = 1
         setDicts["regDataDist"] = 0.0
         setDicts["verbose"] = True
+        setDicts["saveDetail"] = False
         super().__init__(setDicts) 
 
-'''
-# for文を使わずに投票されたBINの数を数えるためのクラス
-class VoteCount:
-    def __init__(self,binNum,detectorNum,sampleNum):
-        self.__filter = np.zeros((binNum,detectorNum,sampleNum))
-        for b in range(binNum):
-            self.__filter[b] = np.array([[b]*sampleNum]*detectorNum)
-    # 入力ベクトルにおける各BIN値への投票数を重み付きでカウントする
-    def calc(self,bins,weight):
-        return np.transpose(np.sum((self.__filter == bins) * weight, axis=2))
-    # 弱識別器の次元を１つ減らす
-    def reduceDetector(self):
-        self.__filter = np.delete(self.__filter, 0, axis=1) # 減らす列の位置はどこでもいい
-'''
-        
 class CAdaBoost:
     
     def __init__(self,inAdaBoostParam,inImgList,inLabelList,inDetectorList):
@@ -60,6 +46,7 @@ class CAdaBoost:
         self.__treeDepth = inAdaBoostParam["TreeDepth"]
         self.__regDataDist = inAdaBoostParam["regDataDist"]
         self.__verbose = inAdaBoostParam["verbose"]
+        self.__saveDetail = inAdaBoostParam["saveDetail"]
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
@@ -431,7 +418,8 @@ class CAdaBoost:
         dict["strongID"] = strongDetID
         sio.savemat("strong.mat", dict )
         
-        return
+        if self.__saveDetail:
+            self.__Save(strongDetBin, strongDetID)
 
     def Evaluate(self,inImgList,inLabelList):
         
@@ -493,7 +481,45 @@ class CAdaBoost:
         outDict["finalScore"] = np.asarray(finalScore)
         outDict["label"] = np.asarray(inLabelList)
         sio.savemat("FinalScore.mat", outDict)
+    
+    # AdaBoostの計算過程を記録する(optional)
+    def __Save(self, strongBin, strongID):
+
+        # 全特徴スコアの記録ページ
+        featureColumn = []
+        for i in range(self.__trainScoreMat.shape[1]):
+            featureColumn.append("feature{0:04d}".format(i))
+        featureDF = pd.DataFrame(self.__trainScoreMat)
+        featureDF.columns = featureColumn
         
+        # 全寄与度の記録ページ
+        reliabilityColumn = []
+        reliabilityColumn.append("featureID")
+        for i in range(strongBin.shape[1]):
+            reliabilityColumn.append("bin{0}".format(i))
+        reliabilityDF = pd.DataFrame(np.append(strongID.reshape(-1, 1), strongBin, axis = 1))
+        reliabilityDF.columns = reliabilityColumn
+        
+        # xlsxファイルに出力
+        writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
+        featureDF.to_excel(writer, sheet_name = "feature")
+        reliabilityDF.to_excel(writer, sheet_name = "reliability")
+        writer.save()
+        writer.close()
+    
+    # 記録された詳細情報xlsxから情報抽出
+    def __Load(self, type, inDetailPath = None):
+        if None == inDetailPath:
+            detailPath = "adaBoostDetail.xlsx"
+        
+        if type == "trainFeature":
+            return np.array(pd.read_excel(detailPath, sheetname = "feature"))
+
+        if type == "reliability":
+            table = pd.read_excel(detailPath, sheetname = "reliability")
+            id = np.array(table["featureID"])
+            reliability = np.array(table[table.columns[1:]])
+            return id, reliability
 
     def DrawStrong(self):
         strong = np.array(sio.loadmat("strong.mat")["strong"])
@@ -505,6 +531,8 @@ class CAdaBoost:
     
 if "__main__" == __name__:
 
+    for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
+        os.remove(xlsxFile)
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
 
@@ -528,6 +556,8 @@ if "__main__" == __name__:
     adaBoostParam["Regularizer"] = 1e-5
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
+    adaBoostParam["verbose"] = False
+    adaBoostParam["saveDetail"] = True
 
     AdaBoost = CAdaBoost(inAdaBoostParam=adaBoostParam,
                          inImgList=learn,
