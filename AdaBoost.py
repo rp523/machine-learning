@@ -1,8 +1,7 @@
 #coding: utf-8
 import os, shutil, sys
 import numpy as np
-#from feature.hog import CHogParam,CHog
-from feature.hog import *
+from feature.hog import CHogParam,CHog
 from feature.chnFtrs import *
 import common.imgtool as imt
 import common.mathtool as mt
