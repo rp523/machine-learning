@@ -36,17 +36,26 @@ class AdaBoostParam(CParam):
 
 class CAdaBoost:
     
-    def __init__(self,inAdaBoostParam,inImgList,inLabelList,inDetectorList):
-        self.__adaType = inAdaBoostParam["Type"].nowSelected()
-        self.__bin = inAdaBoostParam["Bin"]
-        self.__loopNum = inAdaBoostParam["Loop"]
-        self.__regularize = inAdaBoostParam["Regularizer"]
-        self.__saturate = inAdaBoostParam["Saturate"]
-        self.__saturateLevel = inAdaBoostParam["SaturateLevel"]
-        self.__treeDepth = inAdaBoostParam["TreeDepth"]
-        self.__regDataDist = inAdaBoostParam["regDataDist"]
-        self.__verbose = inAdaBoostParam["verbose"]
-        self.__saveDetail = inAdaBoostParam["saveDetail"]
+    def __init__(self):
+        pass
+    
+    def SetParam(self, inImgList,inLabelList,inDetectorList, inAdaBoostParam = None,):
+        
+        if None != inAdaBoostParam:
+            adaBoostParam = inAdaBoostParam
+        else:
+            adaBoostParam = AdaBoostParam()
+            
+        self.__adaType = adaBoostParam["Type"].nowSelected()
+        self.__bin = adaBoostParam["Bin"]
+        self.__loopNum = adaBoostParam["Loop"]
+        self.__regularize = adaBoostParam["Regularizer"]
+        self.__saturate = adaBoostParam["Saturate"]
+        self.__saturateLevel = adaBoostParam["SaturateLevel"]
+        self.__treeDepth = adaBoostParam["TreeDepth"]
+        self.__regDataDist = adaBoostParam["regDataDist"]
+        self.__verbose = adaBoostParam["verbose"]
+        self.__saveDetail = adaBoostParam["saveDetail"]
         self.__detectorList = inDetectorList
         self.__imgList = inImgList
         self.__labelList = np.array(inLabelList)
@@ -417,9 +426,8 @@ class CAdaBoost:
         dict["strong"] = strongDetBin
         dict["strongID"] = strongDetID
         sio.savemat("strong.mat", dict )
-        
         if self.__saveDetail:
-            self.__Save(strongDetBin, strongDetID)
+            self.__Save(strongDetBin, strongDetID, np.append(posSampleWeight, negSampleWeight))
 
     def Evaluate(self,inImgList,inLabelList):
         
@@ -483,7 +491,10 @@ class CAdaBoost:
         sio.savemat("FinalScore.mat", outDict)
     
     # AdaBoostの計算過程を記録する(optional)
-    def __Save(self, strongBin, strongID):
+    def __Save(self, strongBin, strongID, sampleWeight):
+
+        # xlsxファイルに出力
+        writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
 
         # 全特徴スコアの記録ページ
         featureColumn = []
@@ -491,35 +502,42 @@ class CAdaBoost:
             featureColumn.append("feature{0:04d}".format(i))
         featureDF = pd.DataFrame(self.__trainScoreMat)
         featureDF.columns = featureColumn
+        featureDF.to_excel(writer, sheet_name = "feature")
+
+        # サンプル重みの記録ページ        
+        weightDF = pd.DataFrame(sampleWeight.reshape(-1, 1))
+        weightDF.columns = ["weight"]
+        weightDF.to_excel(writer, sheet_name = "weight")
         
-        # 全寄与度の記録ページ
+        # 全寄与度の記録ページ(選択順)
         reliabilityColumn = []
-        reliabilityColumn.append("featureID")
         for i in range(strongBin.shape[1]):
             reliabilityColumn.append("bin{0}".format(i))
-        reliabilityDF = pd.DataFrame(np.append(strongID.reshape(-1, 1), strongBin, axis = 1))
+        reliabilityDF = pd.DataFrame(strongBin)
         reliabilityDF.columns = reliabilityColumn
-        
-        # xlsxファイルに出力
-        writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
-        featureDF.to_excel(writer, sheet_name = "feature")
         reliabilityDF.to_excel(writer, sheet_name = "reliability")
+        
+        # 特徴選択順の記録ページ
+        strongIdDF = pd.DataFrame(strongID.reshape(-1, 1))
+        strongIdDF.columns = ["selectOrder"]
+        strongIdDF.to_excel(writer, sheet_name = "selectOrder")
+        
         writer.save()
         writer.close()
     
     # 記録された詳細情報xlsxから情報抽出
-    def __Load(self, type, inDetailPath = None):
+    def Load(self, type, inDetailPath = None):
         if None == inDetailPath:
             detailPath = "adaBoostDetail.xlsx"
         
         if type == "trainFeature":
             return np.array(pd.read_excel(detailPath, sheetname = "feature"))
-
-        if type == "reliability":
-            table = pd.read_excel(detailPath, sheetname = "reliability")
-            id = np.array(table["featureID"])
-            reliability = np.array(table[table.columns[1:]])
-            return id, reliability
+        elif type == "reliability":
+            return np.array(pd.read_excel(detailPath, sheetname = "reliability"))
+        elif type == "selectOrder":
+            return np.array(pd.read_excel(detailPath, sheetname = "selectOrder"))
+        elif type == "weight":
+            return np.array(pd.read_excel(detailPath, sheetname = "weight"))
 
     def DrawStrong(self):
         strong = np.array(sio.loadmat("strong.mat")["strong"])
@@ -559,10 +577,11 @@ if "__main__" == __name__:
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = True
 
-    AdaBoost = CAdaBoost(inAdaBoostParam=adaBoostParam,
-                         inImgList=learn,
-                         inLabelList=learnLabel,
-                         inDetectorList=detectorList)
+    AdaBoost = CAdaBoost()
+    AdaBoost.SetParam(  inAdaBoostParam=adaBoostParam,
+                        inImgList=learn,
+                        inLabelList=learnLabel,
+                        inDetectorList=detectorList)
     
     AdaBoost.Evaluate(inImgList=eval,inLabelList=evalLabel)
     
