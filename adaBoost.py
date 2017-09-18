@@ -17,6 +17,8 @@ from input import *
 from preproc import *
 from decisionTree import *
 from tqdm import tqdm
+from datetime import datetime
+from numpy.testing.utils import temppath
 
 class AdaBoostParam(CParam):
     def __init__(self):
@@ -394,10 +396,10 @@ class CAdaBoost:
         self.__reliaID = strongDetID
 
         if self.__saveDetail:
-            self.__Save(strongDetBin,
-                        strongDetID,
-                        trainScoreMat,
-                        labelList)
+            self.__SaveLearning(strongDetBin,
+                                strongDetID,
+                                trainScoreMat,
+                                labelList)
 
     def Evaluate(self, testScoreMat):
         
@@ -432,10 +434,15 @@ class CAdaBoost:
         else:
             assert(0)
         
+        if self.__saveDetail:
+            self.__SaveEvaluation(evalScoreMat = testScoreMat,
+                                  relia = self.__relia,
+                                  reliaID = self.__reliaID)
+            
         return np.asarray(finalScore)
     
     # AdaBoostの計算過程を記録する(optional)
-    def __Save(self, strongBin, strongID, trainScoreMat, trainLabel):
+    def __SaveLearning(self, strongBin, strongID, trainScoreMat, trainLabel):
 
         # xlsxファイルに出力
         writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
@@ -481,6 +488,41 @@ class CAdaBoost:
         writer.save()
         writer.close()
     
+    # AdaBoostの計算過程を記録する(optional)
+    def __SaveEvaluation(self, 
+                         evalScoreMat,
+                         relia,
+                         reliaID,
+                         detailPath = None):
+
+        if None == detailPath:
+            detailPath = "adaBoostDetail.xlsx"
+
+        # 全特徴スコアの記録ページ
+        featureColumn = []
+        for i in range(evalScoreMat.shape[1]):
+            featureColumn.append("feature{0:04d}".format(i))
+        featureDF = pd.DataFrame(evalScoreMat)
+        featureDF.columns = featureColumn
+
+        # スコアをBIN値に換算
+        trainBin = (trainScoreMat * self.__bin).astype(np.int)
+        trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
+        scores = np.empty(trainBin.shape[0])
+        print("evaluating evaluation-sample for save...")
+        base = np.arange(reliaID.size) * self.__bin
+        strongBinVec = relia.flatten()       
+        for s in tqdm(range(scores.size)):
+            scoreVec = strongBinVec[base + trainBin[s][reliaID]]
+            scores[s] = np.sum(np.sum(scoreVec))
+        evalScoreDF = pd.DataFrame(scores.reshape(-1, 1))
+        evalScoreDF.columns = ["evalScore"]
+
+        # xlsxファイルに追記出力
+        AddXlsxSheet(detailPath, "evalFeature", featureDF)
+        AddXlsxSheet(detailPath, "evalScore"  , evalScoreDF)
+        
+
     # 記録された詳細情報xlsxから情報抽出
     def Load(self, type, inDetailPath = None):
         if None == inDetailPath:
@@ -502,20 +544,20 @@ if "__main__" == __name__:
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
 
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")#[:500]
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")#[:500]
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )#[:100]
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )#[:100]
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:100]
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:100]
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:100]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:100]
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 5
-    hogParam["Cell"]["Y"] = 10
-    hogParam["Block"]["X"] = 3
-    hogParam["Block"]["Y"] = 3
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
+    hogParam["Block"]["X"] = 1
+    hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
