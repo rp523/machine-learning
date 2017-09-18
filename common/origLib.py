@@ -1,23 +1,10 @@
+#coding: utf-8
+import os, sys, shutil
 import enum
 from matplotlib.font_manager import FontProperties
-import inspect
-
+from datetime import datetime
+import pandas as pd
 myrica = FontProperties(fname="/home/isgsktyktt/.fonts/Myrica.TTC")
-
-#http://qiita.com/narupo/items/cfa7d7a4adabf1b4d9be
-def frameinfo(stackIndex=2):
-    stack = inspect.stack()
-    if stackIndex >= len(stack):
-        return None
-    callerframerecord = stack[stackIndex]
-    frame = callerframerecord[0]
-    info = inspect.getframeinfo(frame)
-    return info
-def headerFormat(prefix, info):
-    if info:
-        return prefix + ': ' + info.filename[info.filename.rfind("/") + 1:] + ': '  + info.function + '(): line = ' + str(info.lineno) + ': '
-    else:
-        return prefix + ': frameinfo is None: '
 
 # 自動でアイテムが追加順にsortされるディクショナリ
 class dicts(dict):
@@ -132,3 +119,38 @@ class selparam(CParam):
     def update(self, *args, **kwargs):
         assert(0) # select関数以外での値変更は禁止
 
+def GetTimeMark():
+    now = datetime.now()
+    nowStr = "{0:04d}".format(now.year)   + \
+             "{0:02d}".format(now.month)  + \
+             "{0:02d}".format(now.day)    + \
+             "_"                          + \
+             "{0:02d}".format(now.hour)   + \
+             "{0:02d}".format(now.minute) + \
+             "{0:02d}".format(now.second) + \
+             "_"                          + \
+             "{0:06d}".format(now.microsecond)
+    return nowStr
+
+def AddXlsxSheet(filePath,
+                 addSheetName,
+                 addDataFrame):
+    
+    if not os.path.exists(filePath):
+        return False
+    file = pd.ExcelFile(filePath)
+    if addSheetName in file.sheet_names:
+        return False
+
+    tmpPath = "temp" + GetTimeMark() + ".xlsx"
+    assert(not os.path.exists(tmpPath))
+    
+    tmpWriter = pd.ExcelWriter(tmpPath, engine = 'xlsxwriter')
+    for sheetName in file.sheet_names:
+        pd.read_excel(filePath, sheetname = sheetName).to_excel(tmpWriter, sheet_name = sheetName)
+    
+    addDataFrame.to_excel(tmpWriter, sheet_name = addSheetName)
+
+    tmpWriter.save()
+    tmpWriter.close()
+    shutil.move(tmpPath, filePath)
