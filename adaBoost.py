@@ -7,7 +7,6 @@ import common.imgtool as imt
 import common.mathtool as mt
 import pandas as pd
 import common.fileIO as fio
-import scipy.io as sio
 from matplotlib import pyplot as plt
 from PIL import Image
 import gui
@@ -17,7 +16,7 @@ from gaussianProcess import *
 from input import *
 from preproc import *
 from decisionTree import *
-
+from tqdm import tqdm
 
 class AdaBoostParam(CParam):
     def __init__(self):
@@ -63,35 +62,6 @@ class CAdaBoost:
         
         self.__thresh = np.zeros(len(inDetectorList),float)
         
-        self.__Prepare()
-        self.__Boost()
-        
-
-    # (弱識別器インデックス) x (入力イメージインデックス) の行列を計算する
-    # AdaBoostのループにおいて、この行列は最初に一度だけ計算する
-    def __Prepare(self):
-        if not os.path.exists("Train.mat"):
-            self.__trainScoreMat = np.empty((0,self.__GetFeatureLength()),float)
-    
-            logCnt = 0;
-            
-            for detector in self.__detectorList:
-                self.__imgList = np.array(self.__imgList)
-                self.__trainScoreMat = np.append(self.__trainScoreMat, detector.calc(self.__imgList), axis = 0)
-            
-            logCnt = logCnt + 1
-            if self.__verbose:
-                if (0 == logCnt % 100) or (len(self.__imgList) == logCnt):
-                    print(logCnt,"/",len(self.__imgList),"file was prepared for training.")
-    
-            dict = {}
-            dict["trainScore"] = self.__trainScoreMat
-            dict["trainLabel"] = self.__labelList
-            sio.savemat("Train.mat", dict)
-            
-        else:
-            self.__trainScoreMat = np.asarray(sio.loadmat("Train.mat")["trainScore"])
-
     def __GetFeatureLength(self):
         if None == self.__featureLen:
             self.__featureLen = 0
@@ -123,21 +93,22 @@ class CAdaBoost:
         def calc(self,bin):
             return self.__reliability[bin]
 
-    def __Boost(self):
+    def Boost(self, trainScoreMat, labelList):
 
-        if os.path.exists("strong.mat"):
-            return
+        assert(isinstance(trainScoreMat, np.ndarray))
+        assert(trainScoreMat.ndim == 2)
+        assert(not np.any(trainScoreMat < 0))
+        assert(isinstance(labelList, np.ndarray))
+        assert(labelList.ndim == 1)
+        assert(trainScoreMat.shape[0] == labelList.size)
         
-        assert(isinstance(self.__trainScoreMat, np.ndarray))
-        assert(self.__trainScoreMat.ndim == 2)
-        assert(not np.any(self.__trainScoreMat < 0))
 
-        sampleNum   = self.__trainScoreMat.shape[0]
-        detectorNum = self.__trainScoreMat.shape[1]
+        sampleNum   = trainScoreMat.shape[0]
+        detectorNum = trainScoreMat.shape[1]
         adaLoop = min(self.__loopNum,detectorNum)
  
         # スコア行列をPos/Negで分ける
-        trainPosScore, trainNegScore = self.__PosNegDevide(self.__trainScoreMat, self.__labelList)
+        trainPosScore, trainNegScore = self.__PosNegDevide(trainScoreMat, labelList)
         assert(not np.any(trainPosScore < 0))
         assert(not np.any(trainNegScore < 0))
         posSample = trainPosScore.shape[0]
@@ -361,7 +332,8 @@ class CAdaBoost:
             assert(not (trainPosBin < 0).any())
             assert(not (trainNegBin < 0).any())
 
-            for w in range(adaLoop):
+            print("real-adaboosting...")
+            for w in tqdm(range(adaLoop)):
 
                 # まだAdaBoostに選択されず残っている識別器の数
                 detRemain = trainPosBin.shape[1]
@@ -401,8 +373,8 @@ class CAdaBoost:
                 #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
                 reliability = self.Reliability(h)
                 # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
-                posMax = np.max(-1.0 * reliability.calc(bin = trainPosBin[bestDet]))
-                negMax = np.max( 1.0 * reliability.calc(bin = trainNegBin[bestDet]))
+                posMax = np.max(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]))
+                negMax = np.max( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]))
     
                 posSampleWeight *= np.exp(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]) - posMax)
                 posSampleWeight /= np.sum(posSampleWeight)
@@ -415,68 +387,42 @@ class CAdaBoost:
                 trainNegBin = np.delete(trainNegBin, bestDet, axis = 1)
                 remainDetIDList = np.delete(remainDetIDList, bestDet)
 
-                if self.__verbose:
-                    if (0 == (w + 1) % 1) or (w + 1 == adaLoop):
-                        print("boosting weak detector:", w + 1)
-            
                 assert(not np.any(np.isnan(strongDetBin)))
                 assert(not np.any(np.isnan(strongDetID)))
 
-        dict = {}
-        dict["strong"] = strongDetBin
-        dict["strongID"] = strongDetID
-        sio.savemat("strong.mat", dict )
+        self.__relia = strongDetBin
+        self.__reliaID = strongDetID
+
         if self.__saveDetail:
-            self.__Save(strongDetBin, strongDetID, np.append(posSampleWeight, negSampleWeight))
+            self.__Save(strongDetBin,
+                        strongDetID,
+                        trainScoreMat,
+                        labelList)
 
-    def Evaluate(self,inImgList,inLabelList):
+    def Evaluate(self, testScoreMat):
         
-        strongDetector   = np.array(sio.loadmat("strong.mat")["strong"])
-        strongDetectorID = np.array(sio.loadmat("strong.mat")["strongID"]).astype(np.int)[0]
-        
-        assert(not np.any(np.isnan(strongDetector)))
-        assert(not np.any(np.isnan(strongDetectorID)))
-
         # 評価用サンプルに対する各弱識別器のスコアを算出
+
+        assert((testScoreMat >= 0.0).all())
+        assert((testScoreMat <= 1.0).all())
+        binMat = (testScoreMat * self.__bin).astype(np.int)
+        binMat[binMat >= self.__bin] = self.__bin - 1
         
-        if not os.path.exists("Test.mat"):
-            logCnt = 0;
-            if not self.__GetFeatureLength:
-                assert(0)
-            self.__testScoreMat = np.empty((0,self.__GetFeatureLength()),float)
-
-            featVec = np.empty(0,float)
-            for detector in self.__detectorList:
-                self.__testScoreMat = np.append(self.__testScoreMat, detector.calc(inImgList),axis=0)
-            
-            logCnt = logCnt + 1
-            if self.__verbose:
-                if (0 == logCnt % 100) or (len(inImgList) == logCnt):
-                    print(logCnt,"/",len(inImgList),"file was prepared for test.")
-    
-            dict = {}
-            dict["testScore"] = self.__testScoreMat
-            dict["testLabel"] = np.array(inLabelList)
-            sio.savemat("Test.mat", dict)
-        else:
-            self.__testScoreMat = np.asarray(sio.loadmat("Test.mat")["testScore"])
-
-        # AdaBoostではまず転置をとる
-        self.__testScoreMat = np.transpose(self.__testScoreMat)
-
-        finalScore = np.zeros(len(inImgList))
+        finalScore = np.zeros(testScoreMat.shape[0])
+        reliaVec = self.__relia.flatten()
+        base = np.arange(self.__reliaID.size) * self.__bin       
+        
         if self.__adaType == "Real":
-            for d in range(strongDetectorID.size):
-                selectedDetectorID = strongDetectorID[d]
-                for i in range(len(inImgList)):
-                    score = self.__testScoreMat[selectedDetectorID][i]
-                    b = mt.IntMax(score * self.__bin, self.__bin - 1)
-                    finalScore[i] += strongDetector[d][b]
+            print("evaluating sample...")
+            for i in tqdm(range(finalScore.size)):
+                scoreVec = reliaVec[base + binMat[i][self.__reliaID]]
+                finalScore[i] = np.sum(scoreVec)
+
         elif self.__adaType == "Discrete":
-            finalScore = np.dot(self.__detWeights, self.__decisionTree.predict(strongDetectorID, self.__testScoreMat)).T
+            finalScore = np.dot(self.__detWeights, self.__decisionTree.predict(self.__reliaID, self.__testScoreMat)).T
         elif self.__adaType == "RealTree":
             didCount = 0
-            for did in strongDetectorID:
+            for did in self.__reliaID:
                 for sid in range(self.__testScoreMat.shape[1]):
                     score = self.__testScoreMat[did][sid]
                     isLarger = score > np.array(self.__treeThresh[didCount])
@@ -485,27 +431,37 @@ class CAdaBoost:
                 didCount += 1
         else:
             assert(0)
-        outDict = {}
-        outDict["finalScore"] = np.asarray(finalScore)
-        outDict["label"] = np.asarray(inLabelList)
-        sio.savemat("FinalScore.mat", outDict)
+        
+        return np.asarray(finalScore)
     
     # AdaBoostの計算過程を記録する(optional)
-    def __Save(self, strongBin, strongID, sampleWeight):
+    def __Save(self, strongBin, strongID, trainScoreMat, trainLabel):
 
         # xlsxファイルに出力
         writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
 
         # 全特徴スコアの記録ページ
         featureColumn = []
-        for i in range(self.__trainScoreMat.shape[1]):
+        for i in range(trainScoreMat.shape[1]):
             featureColumn.append("feature{0:04d}".format(i))
-        featureDF = pd.DataFrame(self.__trainScoreMat)
+        featureDF = pd.DataFrame(trainScoreMat)
         featureDF.columns = featureColumn
         featureDF.to_excel(writer, sheet_name = "feature")
 
-        # サンプル重みの記録ページ        
-        weightDF = pd.DataFrame(sampleWeight.reshape(-1, 1))
+        # サンプル重みの記録ページ
+
+        # スコアをBIN値に換算
+        trainBin = (trainScoreMat * self.__bin).astype(np.int)
+        trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
+        weights = np.empty(trainBin.shape[0])
+        print("evaluating training-sample for save...")
+        base = np.arange(strongID.size) * self.__bin
+        strongBinVec = strongBin.flatten()       
+        for s in tqdm(range(weights.size)):
+            scoreVec = strongBinVec[base + trainBin[s][strongID]]
+            score = np.sum(np.sum(scoreVec))
+            weights[s] = np.exp(- trainLabel[s] * score)
+        weightDF = pd.DataFrame(weights.reshape(-1, 1))
         weightDF.columns = ["weight"]
         weightDF.to_excel(writer, sheet_name = "weight")
         
@@ -539,14 +495,6 @@ class CAdaBoost:
         elif type == "weight":
             return np.array(pd.read_excel(detailPath, sheetname = "weight"))
 
-    def DrawStrong(self):
-        strong = np.array(sio.loadmat("strong.mat")["strong"])
-        for d in self.__detectorList:   #今はリスト使ってないので１こだけ
-            img = self.__imgList[5]
-            imt.ndarray2PILimg(img).resize((400,800)).show()
-            d.ShowBinImg(shape=(800,400), strong=strong, img=img)
-            d.ShowBinImg(shape=(800,400), img=img)
-    
 if "__main__" == __name__:
 
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
@@ -554,20 +502,20 @@ if "__main__" == __name__:
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
 
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:100]
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:100]
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:100]
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:100]
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")#[:500]
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")#[:500]
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )#[:100]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )#[:100]
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
-    hogParam["Block"]["X"] = 1
-    hogParam["Block"]["Y"] = 1
+    hogParam["Cell"]["X"] = 5
+    hogParam["Cell"]["Y"] = 10
+    hogParam["Block"]["X"] = 3
+    hogParam["Block"]["Y"] = 3
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
@@ -577,14 +525,29 @@ if "__main__" == __name__:
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = True
 
-    AdaBoost = CAdaBoost()
-    AdaBoost.SetParam(  inAdaBoostParam=adaBoostParam,
-                        inImgList=learn,
-                        inLabelList=learnLabel,
-                        inDetectorList=detectorList)
+    adaBoost = CAdaBoost()
+    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
+                        inImgList = learn,
+                        inLabelList = learnLabel,
+                        inDetectorList = detectorList)
+
+    trainScoreMat = np.empty((len(learn), 0))
+    for detector in detectorList:
+        trainScoreMat = np.append(trainScoreMat,
+                                  detector.calc(learn),
+                                  axis = 1)
+
+    adaBoost.Boost(trainScoreMat = trainScoreMat,
+                   labelList = learnLabel)
     
-    AdaBoost.Evaluate(inImgList=eval,inLabelList=evalLabel)
+    # 評価用の特徴量行列を準備    
+    testScoreMat = np.empty((len(eval), 0))
+    for detector in detectorList:
+        testScoreMat = np.append(testScoreMat,
+                                 detector.calc(eval),
+                                 axis = 1)
     
-    accuracy, auc = gui.evaluateROC(np.asarray(sio.loadmat("FinalScore.mat")["finalScore"])[0],
-        np.asarray(sio.loadmat("FinalScore.mat")["label"])[0])
+    evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat)
+    
+    accuracy, auc = gui.evaluateROC(evalScore, evalLabel)
     print(auc)
