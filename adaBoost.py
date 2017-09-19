@@ -9,16 +9,12 @@ import pandas as pd
 import common.fileIO as fio
 from matplotlib import pyplot as plt
 from PIL import Image
-import gui
-from enum import Enum
 from common.origLib import *
-from gaussianProcess import *
 from input import *
 from preproc import *
 from decisionTree import *
 from tqdm import tqdm
-from datetime import datetime
-from numpy.testing.utils import temppath
+import gui
 
 class AdaBoostParam(CParam):
     def __init__(self):
@@ -401,7 +397,7 @@ class CAdaBoost:
                                 trainScoreMat,
                                 labelList)
 
-    def Evaluate(self, testScoreMat):
+    def Evaluate(self, testScoreMat, label):
         
         # 評価用サンプルに対する各弱識別器のスコアを算出
 
@@ -435,77 +431,81 @@ class CAdaBoost:
             assert(0)
         
         if self.__saveDetail:
-            self.__SaveEvaluation(evalScoreMat = testScoreMat,
+            self.__SaveEvaluation(scoreMat = testScoreMat,
+                                  label = label,
                                   relia = self.__relia,
                                   reliaID = self.__reliaID)
             
         return np.asarray(finalScore)
     
     # AdaBoostの計算過程を記録する(optional)
-    def __SaveLearning(self, strongBin, strongID, trainScoreMat, trainLabel):
+    def __SaveLearning(self, strongBin, strongID, scoreMat, trainLabel):
 
         # xlsxファイルに出力
         writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
-
-        # 全特徴スコアの記録ページ
-        featureColumn = []
-        for i in range(trainScoreMat.shape[1]):
-            featureColumn.append("feature{0:04d}".format(i))
-        featureDF = pd.DataFrame(trainScoreMat)
-        featureDF.columns = featureColumn
-        featureDF.to_excel(writer, sheet_name = "feature")
-
-        # サンプル重みの記録ページ
-
+        
+        # 学習サンプルごとの詳細記録シート
+        learnDF = pd.DataFrame()
+        
         # スコアをBIN値に換算
         trainBin = (trainScoreMat * self.__bin).astype(np.int)
         trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
-        weights = np.empty(trainBin.shape[0])
+        scores = np.empty(trainBin.shape[0])
         print("evaluating training-sample for save...")
         base = np.arange(strongID.size) * self.__bin
         strongBinVec = strongBin.flatten()       
-        for s in tqdm(range(weights.size)):
+        for s in tqdm(range(scores.size)):
             scoreVec = strongBinVec[base + trainBin[s][strongID]]
-            score = np.sum(np.sum(scoreVec))
-            weights[s] = np.exp(- trainLabel[s] * score)
-        weightDF = pd.DataFrame(weights.reshape(-1, 1))
-        weightDF.columns = ["weight"]
-        weightDF.to_excel(writer, sheet_name = "weight")
+            scores[s] = np.sum(np.sum(scoreVec))
+        learnDF["weight"] = scores
+
+        # 全特徴スコアの記録
+        for i in range(trainScoreMat.shape[1]):
+            learnDF["feature{0:04d}".format(i)] = scoreMat.T[i]
         
-        # 全寄与度の記録ページ(選択順)
-        reliabilityColumn = []
+        learnDF.to_excel(writer, sheet_name = "learn")
+
+        # AdaBoostの詳細記録シート
+        adaBoostDF = pd.DataFrame()
+        
+        # 特徴選択順
+        adaBoostDF["boostOrder"] = strongID
+        
+        # 全寄与度の記録(選択順)
         for i in range(strongBin.shape[1]):
-            reliabilityColumn.append("bin{0}".format(i))
-        reliabilityDF = pd.DataFrame(strongBin)
-        reliabilityDF.columns = reliabilityColumn
-        reliabilityDF.to_excel(writer, sheet_name = "reliability")
-        
-        # 特徴選択順の記録ページ
-        strongIdDF = pd.DataFrame(strongID.reshape(-1, 1))
-        strongIdDF.columns = ["selectOrder"]
-        strongIdDF.to_excel(writer, sheet_name = "selectOrder")
+            adaBoostDF["bin{0}".format(i)] = strongBin.T[i]
+        adaBoostDF.to_excel(writer, sheet_name = "adaBoost")
         
         writer.save()
         writer.close()
     
     # AdaBoostの計算過程を記録する(optional)
     def __SaveEvaluation(self, 
-                         evalScoreMat,
+                         scoreMat,
+                         label,
                          relia,
                          reliaID,
                          detailPath = None):
-
+        assert(isinstance(scoreMat, np.ndarray))
+        assert(isinstance(label, np.ndarray))
+        assert(isinstance(relia, np.ndarray))
+        assert(isinstance(reliaID, np.ndarray))
+        assert(scoreMat.ndim == 2)
+        assert(label.ndim == 1)
+        assert(relia.ndim == 2)
+        assert(reliaID.ndim == 1)
+        assert(scoreMat.shape[0] == label.size)
+        
         if None == detailPath:
             detailPath = "adaBoostDetail.xlsx"
 
-        # 全特徴スコアの記録ページ
-        featureColumn = []
-        for i in range(evalScoreMat.shape[1]):
-            featureColumn.append("feature{0:04d}".format(i))
-        featureDF = pd.DataFrame(evalScoreMat)
-        featureDF.columns = featureColumn
+        # 評価サンプルごとの詳細記録シート
+        evalDF = pd.DataFrame()
+        
+        # 評価サンプルのラベルを記録。いらないかも
+        evalDF["label"] = label
 
-        # スコアをBIN値に換算
+        # 評価スコアを記録
         trainBin = (trainScoreMat * self.__bin).astype(np.int)
         trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
         scores = np.empty(trainBin.shape[0])
@@ -515,12 +515,15 @@ class CAdaBoost:
         for s in tqdm(range(scores.size)):
             scoreVec = strongBinVec[base + trainBin[s][reliaID]]
             scores[s] = np.sum(np.sum(scoreVec))
-        evalScoreDF = pd.DataFrame(scores.reshape(-1, 1))
-        evalScoreDF.columns = ["evalScore"]
+        evalDF["score"] = scores
 
-        # xlsxファイルに追記出力
-        AddXlsxSheet(detailPath, "evalFeature", featureDF)
-        AddXlsxSheet(detailPath, "evalScore"  , evalScoreDF)
+        # 全特徴スコアを記録
+        featureColumn = []
+        for i in range(scoreMat.shape[1]):
+            evalDF["feature{0:04d}".format(i)] = scoreMat.T[i]
+
+        # xlsxファイルに追記
+        AddXlsxSheet(detailPath, "eval", evalDF)
         
 
     # 記録された詳細情報xlsxから情報抽出
@@ -528,14 +531,36 @@ class CAdaBoost:
         if None == inDetailPath:
             detailPath = "adaBoostDetail.xlsx"
         
-        if type == "trainFeature":
-            return np.array(pd.read_excel(detailPath, sheetname = "feature"))
+        if type == "learnFeature":
+            out = []
+            df = pd.read_excel(detailPath, sheetname = "learn")
+            for col in df.columns:
+                if col.find("feature") >= 0:
+                    out.append(df[col])
+            return np.array(out).T
+        elif type == "score":
+            return np.array(pd.read_excel(detailPath, sheetname = "learn")["score"])
         elif type == "reliability":
-            return np.array(pd.read_excel(detailPath, sheetname = "reliability"))
-        elif type == "selectOrder":
-            return np.array(pd.read_excel(detailPath, sheetname = "selectOrder"))
-        elif type == "weight":
-            return np.array(pd.read_excel(detailPath, sheetname = "weight"))
+            out = []
+            df = pd.read_excel(detailPath, sheetname = "adaBoost")
+            for col in df.columns:
+                if col.find("bin") >= 0:
+                    out.append(df[col])
+            return np.array(out).T
+        elif type == "boostOrder":
+            return np.array(pd.read_excel(detailPath, sheetname = "adaBoost")["boostOrder"])
+        elif type == "evalScore":
+            return np.array(pd.read_excel(detailPath, sheetname = "eval")["score"])
+        elif type == "evalFeature":
+            out = []
+            df = pd.read_excel(detailPath, sheetname = "eval")
+            for col in df.columns:
+                if col.find("feature") >= 0:
+                    out.append(df[col])
+            return np.array(out).T
+        elif type == "evalLabel":
+            return np.array(pd.read_excel(detailPath, sheetname = "eval")["label"])
+        
 
 if "__main__" == __name__:
 
@@ -566,7 +591,7 @@ if "__main__" == __name__:
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = True
-
+    
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
                         inImgList = learn,
@@ -589,7 +614,8 @@ if "__main__" == __name__:
                                  detector.calc(eval),
                                  axis = 1)
     
-    evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat)
+    evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
+                                  label = evalLabel)
     
     accuracy, auc = gui.evaluateROC(evalScore, evalLabel)
     print(auc)
