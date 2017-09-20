@@ -2,7 +2,8 @@ import sys
 from matplotlib import pyplot as plt
 import numpy as np
 from skimage.transform import integral_image,integrate
-
+import unittest
+import scipy.linalg as linalg
 
 def MakeIntegral(img):
     assert(isinstance(img, np.ndarray))
@@ -369,15 +370,45 @@ def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0):
 
     return img[:, :, pad:H + pad, pad:W + pad]
 
+class Test_MakeIntegral(unittest.TestCase):
+    def test_MakeIntegral(self):
+        a = np.array([[0, 1, 2],
+                      [0, 1, 2],
+                      [0, 1, 2]])
+        b = MakeIntegral(a)
+        self.assertEqual((b == np.array([[0, 0, 0, 0],
+                                         [0, 0, 1, 3],
+                                         [0, 0, 2, 6],
+                                         [0, 0, 3, 9]])).all(), True)
+class Test_SumFromIntegral(unittest.TestCase):
+    def test_SumFromIntegral1(self):
+        a = np.array([[0, 1, 2],
+                      [0, 1, 2],
+                      [0, 1, 2]])
+        b = MakeIntegral(a)
+        self.assertEqual(6, SumFromIntegral(b, y0 = 1, y1 = 2, x0 = 1, x1 = 2))
+    def test_SumFromIntegral2(self):
+        a = np.array([[0, 1, 2],
+                      [0, 1, 2],
+                      [0, 1, 2]])
+        b = MakeIntegral(a)
+        self.assertEqual(6, SumFromIntegral(b, y0 = 0, y1 = 1, x0 = 0, x1 = 2))
+
+def MakeLU(A):
+    return linalg.lu_factor(A)
+def SolveLU(LU, b):
+    return linalg.lu_solve(LU, b)
+class Test_LU(unittest.TestCase):
+    def test_LU(self):        
+        A = np.array([[6, 4, 1],
+                      [1, 8, -2],
+                      [3, 2, 0]])
+        b = np.array([7, 6, 8])
+        LU = MakeLU(A)
+        x = SolveLU(LU, b)
+        xExpected = np.array([4.0, -2.0, -9.0])
+        self.assertEqual(True, (x == xExpected).all())        
+
 if "__main__" == __name__:
-    a = np.array([[0, 1, 2],
-                  [0, 1, 2],
-                  [0, 1, 2]])
-    b = MakeIntegral(a)
-    assert((b == np.array([[0, 0, 0, 0],
-                          [0, 0, 1, 3],
-                          [0, 0, 2, 6],
-                          [0, 0, 3, 9]])).all())
-    assert(6 == SumFromIntegral(b, y0 = 1, y1 = 2, x0 = 1, x1 = 2))
-    assert(6 == SumFromIntegral(b, y0 = 0, y1 = 1, x0 = 0, x1 = 2))
-    print("Done.")
+    unittest.main()
+    
