@@ -436,8 +436,8 @@ class CAdaBoost:
                                   relia = self.__relia,
                                   reliaID = self.__reliaID)
             
-        return np.asarray(finalScore)
-    
+        out = np.array(finalScore)
+        return out
     # AdaBoostの計算過程を記録する(optional)
     def __SaveLearning(self, strongBin, strongID, scoreMat, trainLabel):
 
@@ -447,20 +447,23 @@ class CAdaBoost:
         # 学習サンプルごとの詳細記録シート
         learnDF = pd.DataFrame()
         
+        # ラベルの記録
+        learnDF["label"] = trainLabel
+        
         # スコアをBIN値に換算
-        trainBin = (trainScoreMat * self.__bin).astype(np.int)
+        trainBin = (scoreMat * self.__bin).astype(np.int)
         trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
         scores = np.empty(trainBin.shape[0])
-        print("evaluating training-sample for save...")
+        print("calculating learning-sample for save...")
         base = np.arange(strongID.size) * self.__bin
         strongBinVec = strongBin.flatten()       
         for s in tqdm(range(scores.size)):
             scoreVec = strongBinVec[base + trainBin[s][strongID]]
             scores[s] = np.sum(np.sum(scoreVec))
-        learnDF["weight"] = scores
+        learnDF["score"] = scores
 
         # 全特徴スコアの記録
-        for i in range(trainScoreMat.shape[1]):
+        for i in range(scoreMat.shape[1]):
             learnDF["feature{0:04d}".format(i)] = scoreMat.T[i]
         
         learnDF.to_excel(writer, sheet_name = "learn")
@@ -506,14 +509,14 @@ class CAdaBoost:
         evalDF["label"] = label
 
         # 評価スコアを記録
-        trainBin = (trainScoreMat * self.__bin).astype(np.int)
-        trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
-        scores = np.empty(trainBin.shape[0])
+        binScoreMat = (scoreMat * self.__bin).astype(np.int)
+        binScoreMat[binScoreMat >= self.__bin] = self.__bin - 1
+        scores = np.empty(binScoreMat.shape[0])
         print("evaluating evaluation-sample for save...")
         base = np.arange(reliaID.size) * self.__bin
         strongBinVec = relia.flatten()       
         for s in tqdm(range(scores.size)):
-            scoreVec = strongBinVec[base + trainBin[s][reliaID]]
+            scoreVec = strongBinVec[base + binScoreMat[s][reliaID]]
             scores[s] = np.sum(np.sum(scoreVec))
         evalDF["score"] = scores
 
@@ -531,15 +534,19 @@ class CAdaBoost:
         if None == inDetailPath:
             detailPath = "adaBoostDetail.xlsx"
         
-        if type == "learnFeature":
+        if type == "learnLabel":
+            return np.array(pd.read_excel(detailPath, sheetname = "learn")["label"])
+        elif type == "learnFeature":
             out = []
             df = pd.read_excel(detailPath, sheetname = "learn")
             for col in df.columns:
                 if col.find("feature") >= 0:
                     out.append(df[col])
-            return np.array(out).T
-        elif type == "score":
-            return np.array(pd.read_excel(detailPath, sheetname = "learn")["score"])
+            out = np.array(out).T
+            return out
+        elif type == "learnScore":
+            out = np.array(pd.read_excel(detailPath, sheetname = "learn")["score"])
+            return out
         elif type == "reliability":
             out = []
             df = pd.read_excel(detailPath, sheetname = "adaBoost")
@@ -569,10 +576,10 @@ if "__main__" == __name__:
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
 
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:100]
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:100]
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:100]
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:100]
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:102]
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:101]
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:99]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
