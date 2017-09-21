@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from matplotlib import pyplot as plt
-from common.mathtool import MakeLU, SolveLU
+from common.mathtool import SolveLU
 
 class CInfluenceParam(CParam):
     def __init__(self):
@@ -13,7 +13,7 @@ class CInfluenceParam(CParam):
         setDicts["learner"] = selparam("RealAdaBoost")
         setDicts["evalTarget"] = selparam("largeNeg", "smallPos")
         setDicts["removeMax"] = 1
-        super().__init__(setDicts) 
+        super().__init__(setDicts)
 
 class CInfluence:
     def __init__(self, inParam = None):
@@ -23,32 +23,45 @@ class CInfluence:
         else:
             self.__param = CInfluenceParam()
 
-        hessian, self.__learnMat, self.__evalMat, self.__evalLabel, self.__evalScore = self.__Prepare()
-        self.__hessianLU = MakeLU(hessian)
-    
+        self.__hessian, self.__learnMat, self.__evalMat, self.__evalLabel, self.__evalScore = self.__Prepare()
+        
     def RefineLearningSample(self):
+        
+        evalTarget = None
         if self.__param["evalTarget"]["largeNeg"]:
             negMat     = self.__evalMat[  self.__evalLabel == -1]
             negScore   = self.__evalScore[self.__evalLabel == -1]
-            evalTarget = negMat[np.argmax(negScore)]
+            maxId = np.argmax(negScore)
+            if negScore[maxId] > 0.5:
+                evalTarget = negMat[maxId]
         elif self.__param["evalTarget"]["smallPos"]:
             posMat     = self.__evalMat[  self.__evalLabel == 1]
             posScore   = self.__evalScore[self.__evalLabel == 1]
-            evalTarget = posMat[np.argmin(posScore)]
-        
-        lH = SolveLU(self.__hessianLU, evalTarget)
+            minId = np.argmin(posScore)
+            if negScore[minId] < 0.5:
+                evalTarget = posMat[minId]
+        assert(not np.isnan(self.__hessian).any())
+        assert(not np.isnan(evalTarget).any())
+        tgtEvalSample = np.where((self.__evalMat == evalTarget).all(axis = 1))
+        tgtEvalSample = int(tgtEvalSample[0][0])
+
+        ref = - SolveLU(self.__hessian, evalTarget)
+        assert(not np.isnan(ref).any())
         
         learnSample = self.__learnMat.shape[0]
         print("searching harmful learning-sample...")
-        lHl = np.empty(learnSample)
+        upWeightLoss = np.empty(learnSample)
         for s in tqdm(range(learnSample)):
             learnVec = self.__learnMat[s]
-            lHl[s] = np.sum(learnVec * lH)
-        if self.__param["evalTarget"]["largeNeg"]:
-            return np.argsort(lHl)[self.__param["removeMax"]:]
-        elif self.__param["evalTarget"]["smallPos"]:
-            return np.argsort(lHl)[self.__param["removeMax"]:]
+            upWeightLoss[s] = np.sum(learnVec * ref)
         
+        upWeightLoss_argsort = np.argsort(upWeightLoss)
+        remainIdx = np.sort(upWeightLoss_argsort[:-self.__param["removeMax"]])
+        removeIdx = np.sort(upWeightLoss_argsort[-self.__param["removeMax"]:])
+        assert(remainIdx.size + removeIdx.size == upWeightLoss_argsort.size)
+        
+        return remainIdx, removeIdx, tgtEvalSample
+    
     def __Prepare(self):
         if self.__param["learner"]["RealAdaBoost"]:
             adaBoost = CAdaBoost()
@@ -85,7 +98,7 @@ class CInfluence:
                 learnDiffL[s] = oneLine * learnWeight[s] * (- learnLabel[s])
 
                 oneMat = np.dot(oneLine.reshape(-1, 1), oneLine.reshape(1, -1))
-                hessian = hessian + oneMat
+                hessian = hessian + oneMat * learnWeight[s]
             
             assert((hessian == hessian.T).all())
             #plt.imshow(hessian, cmap='hot', interpolation='nearest')
@@ -107,10 +120,17 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + evalBinMat[s]] = 1
                 evalDiffL[s] = oneLine * evalWeight[s] * (- evalLabel[s])
+            
+            # 平均スケールを1に近づける処理のつもりだったが、これやると結果が変わってしまう
+            # hessian = hessian / np.average(hessian[hessian != 0.0])
+
+            # 対角成分に小さい値を足すことで、無理やり正則化する。あまり良くないかも
+            hessian = hessian + (np.min(hessian[hessian != 0.0]) * 1E-7) * np.eye(hessian.shape[0])
+            
             return hessian, learnDiffL, evalDiffL, evalLabel, evalScore
         
 if "__main__" == __name__:
     param = CInfluenceParam()
     influence = CInfluence(inParam = param)
     influence.RefineLearningSample()
-    print("Done.")
+    print("Done. ")
