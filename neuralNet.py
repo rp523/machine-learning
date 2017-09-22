@@ -1,11 +1,10 @@
 import os
 import numpy as np
-import fileIO as fio
+import common.fileIO as fio
 import scipy.io as sio
-import mathtool as mt
-import imgtool as imt
-from pip._vendor.requests.packages.chardet.codingstatemachine import CodingStateMachine
-
+import common.mathtool as mt
+import common.imgtool as imt
+from input import *
 
 
 def SignBinarize(x):
@@ -239,7 +238,7 @@ class CConvolutionLayer(CLayer):
         dw = dw.transpose(1, 0).reshape(self.outC, self.inC, self.fh, self.fw)
         self.w.update(dw.flatten() + self.cost * self.w.Get())
         db = np.sum(dout, axis=0).flatten()
-        self.b.update(db + self.cost * self.b.Get())
+        self.b.update(db)   # バイアスにはWeightDecayを採用しない
         
         dcol = np.dot(dout, self.col_w.T)
         dx = mt.col2im(dcol, self.x.shape, self.fh, self.fw, self.stride, self.pad)
@@ -576,33 +575,33 @@ class CLayerController:
 
 if "__main__" == __name__:
     
-    trainScorePos = np.load("grayINRIA.npz")["TrainPos"]
-    trainScoreNeg = np.load("grayINRIA.npz")["TrainNeg"]
-    trainScore = np.append(trainScorePos,trainScoreNeg,axis=0)
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
+    learnScore = np.append(lp,ln,axis=0)
     
-    testScorePos = np.load("grayINRIA.npz")["TestPos"]
-    testScoreNeg = np.load("grayINRIA.npz")["TestNeg"]
-    testScore = np.append(testScorePos,testScoreNeg,axis=0)
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos")
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg")
+    evalScore = np.append(ep,en,axis=0)
     
-    trainLabel = np.array([1] * trainScorePos.shape[0] + [-1] * trainScoreNeg.shape[0])
-    testLabel  = np.array([1] *  testScorePos.shape[0] + [-1] *  testScoreNeg.shape[0])
+    learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
+    evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
 
     shrinkX = 4
     shrinkY = 4
-    n,h,w = trainScore.shape
-    trainScore = trainScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
-    n,h,w = testScore.shape
-    testScore = testScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX).transpose(0,1,3,2,4).mean(axis=4).mean(axis=3)
+    n,h,w,c = learnScore.shape
+    learnScore = learnScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX,c).transpose(0,1,3,2,4,5).mean(axis=4).mean(axis=3)
+    n,h,w,c = evalScore.shape
+    evalScore = evalScore.reshape(n,h//shrinkY,shrinkY,w//shrinkX,shrinkX,c).transpose(0,1,3,2,4,5).mean(axis=4).mean(axis=3)
     
 #    imt.ndarray2PILimg(trainScore[1]).resize((200,400)).show();exit()
     
-    n,h,w = trainScore.shape
-    trainScore = trainScore.reshape(n,1,h,w)
-    n,h,w = testScore.shape
-    testScore = testScore.reshape(n,1,h,w)
+    n,h,w,c = learnScore.shape
+    learnScore = learnScore.reshape(n,c,h,w)
+    n,h,w,c = evalScore.shape
+    evalScore = evalScore.reshape(n,c,h,w)
     
-    trainScore /= 255
-    testScore /= 255
+    learnScore /= 255
+    evalScore /= 255
     '''
 
     trainScore = np.asarray(sio.loadmat("Train.mat")["trainScore"])
@@ -612,41 +611,45 @@ if "__main__" == __name__:
     '''
     
     
-    sample = trainScore.shape[0]
+    sample = learnScore.shape[0]
     batchSize = 64
 
     assert(sample >= batchSize)
     layers = CLayerController()
+
     layers.append(CConvolutionLayer(filterShape=(6,5,5),stride=1,cost=5e-4))
     layers.append(CPoolingLayer(shape=(2,2),stride=2))
     layers.append(CBatchNormLayer())
-    layers.append(CReLU())
     layers.append(CDropOutLayer(validRate=0.5))
+    layers.append(CReLU())
+    
     layers.append(CConvolutionLayer(filterShape=(16,5,5),stride=1,cost=5e-4))
     layers.append(CPoolingLayer(shape=(2,2),stride=2))
-    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CBatchNormLayer())
+    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CReLU())
+    
     layers.append(CAffineLayer(outShape=(120,),cost=5e-4))
-    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CBatchNormLayer())
+    layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CReLU())
+    
     layers.append(CAffineLayer(outShape=(84,),cost=5e-4))
     layers.append(CBatchNormLayer())
     layers.append(CDropOutLayer(validRate=0.5))
     layers.append(CReLU())
+    
     layers.append(CAffineLayer(outShape=(1,),cost=5e-4))
-    layers.append(CReLU())
-    layers.setOut(CSparseHuberLoss())
+    layers.setOut(CExponentialLoss())
     
     for epoch in range(100000000000):
 
         batchID = np.random.choice(range(sample),batchSize,replace = True)
-        loss = layers.forward(trainScore[batchID], trainLabel[batchID])
+        loss = layers.forward(learnScore[batchID], learnLabel[batchID])
         layers.backward()
         if epoch % 100 == 0:
-            print('%06d'%epoch,'%5f'%loss,end=",")
-            print('%3.10f' % (100*mt.CalcAccuracy(layers.predict(testScore),testLabel)),end=",")
-            print('%3.10f' % (100*mt.CalcROCArea(layers.predict(testScore),testLabel)) ,end=",")
+            print('%09d'%epoch,'%5f'%loss,end=",")
+            print('%3.10f' % (100*mt.CalcAccuracy(layers.predict(evalScore),evalLabel)),end=",")
+            print('%3.10f' % (100*mt.CalcROCArea(layers.predict(evalScore),evalLabel)) ,end=",")
             print()
     print("Done.")
