@@ -1,3 +1,4 @@
+#coding: utf-8
 import common.fileIO as fio
 import os
 import random as rd

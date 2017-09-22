@@ -1,3 +1,4 @@
+#coding: utf-8
 import numpy as np
 from scipy.fftpack import fft2
 import cmath

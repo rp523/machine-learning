@@ -1,3 +1,4 @@
+#coding: utf-8
 from PIL import Image,ImageOps
 import numpy as np
 from common import mathtool as mt

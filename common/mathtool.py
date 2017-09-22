@@ -1,3 +1,4 @@
+#coding: utf-8
 import sys
 from matplotlib import pyplot as plt
 import numpy as np
