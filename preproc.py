@@ -1,3 +1,4 @@
+#coding: utf-8
 from input import *
 import numpy as np
 
