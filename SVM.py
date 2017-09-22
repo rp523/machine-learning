@@ -134,14 +134,14 @@ if "__main__" == __name__:
     if not os.path.exists("Train.mat"):
         print("Train Score Matrix NOT FOUND.");exit()
     if not os.path.exists("Test.mat"):
-        print("Train Score Matrix NOT FOUND.");exit()
+        print("Test Score Matrix NOT FOUND.");exit()
 
     trainScore = sio.loadmat("Train.mat")["trainScore"]
     trainLabel = sio.loadmat("Train.mat")["trainLabel"][0]
     testScore = sio.loadmat("Test.mat")["testScore"]
     testLabel = sio.loadmat("Test.mat")["testLabel"][0]
     
-    svm = SVM(trainScore,trainLabel,100.0)
+    svm = SVM(trainScore,trainLabel,1e0)
     
     score = svm.Calc(testScore = testScore)
     '''
