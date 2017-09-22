@@ -1,5 +1,4 @@
 import numpy as np
-from mcmc import *
 from matplotlib import pyplot as plt
 from scipy.stats import norm
 from common.origLib import *
@@ -46,7 +45,7 @@ class CGaussianProcess(object):
         dim = xNew.shape[0]
 
         if None == self.x:        
-            self.x = np.empty((0, xNew.ndim + 1))
+            self.x = np.empty((0, xNew.size))
         if None == self.y:        
             self.y = np.empty(0)
             
@@ -64,7 +63,6 @@ class CGaussianProcess(object):
         else:
             print("check: ok")
             self.gram = gram
-            print(self.x.shape, xNew.shape)
             self.x = np.append(self.x, [xNew], axis=0)
             self.y = np.append(self.y, yNew)
             self.N += 1
@@ -144,34 +142,39 @@ class CGaussianProcess(object):
         acqTemp = None
         
         # 行列サイズは128くらいが速度的にちょうどいい
-        for j in range(self.sampleNum // self.paraUnit):
+        for j in range(int(self.sampleNum) // self.paraUnit):
 
-            xf = np.empty((0, self.paraUnit))
-            xi = np.empty((0, self.paraUnit))
+            scanX = np.empty((0, self.paraUnit))
             
             for k, minVal in self.paramMin.items():
                 maxVal = self.paramMax[k]
                 if isinstance(minVal, float):
                     assert(isinstance(maxVal, float))
-                    xf = np.append(xf, [np.random.sample(self.paraUnit) * (maxVal - minVal) + minVal], axis = 0)
+                    scanX = np.append(scanX, [np.random.sample(self.paraUnit) * (maxVal - minVal) + minVal], axis = 0)
                 elif isinstance(minVal, int):
                     assert(isinstance(maxVal, int))
-                    xi = np.append(xi, [np.random.randint(maxVal - minVal + 1, size = self.paraUnit)], axis = 0)
-            x = np.append(xf, xi, axis = 0)
-            x = x.transpose()
-            assert(x.shape[0] == self.paraUnit)
-            acq = gp.EI(x)
+                    add = np.random.randint(maxVal - minVal + 1, size = self.paraUnit) + minVal
+                    scanX = np.append(scanX, [add], axis = 0)
+                    assert(np.all(add >= minVal))
+                else:
+                    assert(0)
+            scanX = scanX.transpose()
+            assert(scanX.shape[0] == self.paraUnit)
+            acq = self.EI(scanX)
             if None == trialX:
-                trialX = x[np.argmax(acq)]
+                trialX = scanX[np.argmax(acq)]
                 acqTemp = np.max(acq)
             elif acqTemp < np.max(acq):
-                trialX = x[np.argmax(acq)]
+                trialX = scanX[np.argmax(acq)]
                 acqTemp = np.max(acq)
 
         out = dicts()
         i = 0
-        for k in self.paramMin.keys():
-            out[k] = trialX[i]
+        for k, v in self.paramMin.items():
+            if isinstance(v, int):
+                out[k] = int(trialX[i])
+            else:
+                out[k] = float(trialX[i])
             i += 1
         return out
 
