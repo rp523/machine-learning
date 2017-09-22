@@ -1,8 +1,8 @@
-import fileIO as fio
+import common.fileIO as fio
 import os
 import random as rd
 from PIL import Image
-import imgtool as imt
+import common.imgtool as imt
 import numpy as np
 from scipy import io as sio
 import random
@@ -67,7 +67,7 @@ def NormalizeINRIA():
     print("All Done.")
     
 def ExtractSub(ratio):
-    for dir in ["TrainPos", "TrainNeg", "TestPos", "TestNeg"]:
+    for dir in ["INRIAPerson/LearnPos", "INRIAPerson/LearnNeg", "INRIAPerson/EvalPos", "INRIAPerson/EvalNeg"]:
         dstDir = dir + "Sub"
         if not os.path.exists(dstDir):
             os.mkdir(dstDir)
