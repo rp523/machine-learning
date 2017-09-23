@@ -5,6 +5,7 @@ import numpy as np
 from skimage.transform import integral_image,integrate
 import unittest
 import scipy.linalg as linalg
+import math
 
 def MakeIntegral(img):
     assert(isinstance(img, np.ndarray))
@@ -407,7 +408,23 @@ class Test_LU(unittest.TestCase):
         b = np.array([7, 6, 8])
         x = SolveLU(A, b)
         xExpected = np.dot(np.linalg.inv(A), b)
-        self.assertEqual(False, np.isnan(x).any())        
+        self.assertEqual(False, np.isnan(x).any())
+
+# ガンマ関数。階乗の一般化（Γ(n+1) = n!）
+def Gamma(x):
+    return math.gamma(x)
+class Test_Gamma(unittest.TestCase):
+    def test_Gamma_1(self):
+        self.assertEqual(Gamma(1.0), 1.0)
+    def test_Gamma_2(self):
+        self.assertEqual(Gamma(2.0), 1.0)
+    def test_Gamma_3(self):
+        self.assertEqual(Gamma(3.0), 2.0)
+    def test_Gamma_4(self):
+        self.assertEqual(Gamma(4.0), 6.0)
+
+def PoissonVal(mean, k):
+    return (mean ** k) * np.exp(- mean) / Gamma(k + 1)
 
 if "__main__" == __name__:
     unittest.main()
