@@ -422,9 +422,36 @@ class Test_Gamma(unittest.TestCase):
         self.assertEqual(Gamma(3.0), 2.0)
     def test_Gamma_4(self):
         self.assertEqual(Gamma(4.0), 6.0)
-
 def PoissonVal(mean, k):
     return (mean ** k) * np.exp(- mean) / Gamma(k + 1)
+
+def Factorial(n):
+    return math.factorial(n)
+class Test_Factorial(unittest.TestCase):
+    def test0(self):
+        self.assertEqual(Factorial(0), 1)
+    def test1(self):
+        self.assertEqual(Factorial(1), 1)
+    def test2(self):
+        self.assertEqual(Factorial(2), 2)
+    def test3(self):
+        self.assertEqual(Factorial(3), 6)
+    def test4(self):
+        self.assertEqual(Factorial(4), 24)
+
+def Combination(n, k):
+    return Factorial(n) / (Factorial(n - k) * Factorial(k))
+class Test_Combination(unittest.TestCase):
+    def test_4_0(self):
+        self.assertEqual(Combination(4, 0), 1)
+    def test_4_1(self):
+        self.assertEqual(Combination(4, 1), 4)
+    def test_4_2(self):
+        self.assertEqual(Combination(4, 2), 6)
+    def test_4_3(self):
+        self.assertEqual(Combination(4, 3), 4)
+    def test_4_4(self):
+        self.assertEqual(Combination(4, 4), 1)
 
 if "__main__" == __name__:
     unittest.main()
