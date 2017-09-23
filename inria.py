@@ -16,10 +16,10 @@ def inriaInflFuncTest():
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
     
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:102]
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:101]
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:99]
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")#[:102]
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")#[:101]
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )#[:99]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )#[:98]
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
 
@@ -28,10 +28,10 @@ def inriaInflFuncTest():
         learnLabel = np.array([1] * len(lp) + [-1] * len(ln))[idx]
         hogParam = CHogParam()
         hogParam["Bin"] = 8
-        hogParam["Cell"]["X"] = 2
-        hogParam["Cell"]["Y"] = 4
-        hogParam["Block"]["X"] = 1
-        hogParam["Block"]["Y"] = 1
+        hogParam["Cell"]["X"] = 5
+        hogParam["Cell"]["Y"] = 10
+        hogParam["Block"]["X"] = 3
+        hogParam["Block"]["Y"] = 3
         detectorList = [CHog(hogParam)]
     
         adaBoostParam = AdaBoostParam()
