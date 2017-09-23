@@ -89,18 +89,24 @@ class CInfluence:
             
             base = np.arange(featureNum) * adaBin
 
-            hessian = np.zeros((thetaN, thetaN))
+            print("making learnVec...")
             learnDiffL = np.empty((learnSample, thetaN))
-            print("making hessian...")
             for s in tqdm(range(learnSample)):
                 oneLine = np.zeros(thetaN)
-                oneLine[base + learnBinMat[s]] = 1
-                learnDiffL[s] = oneLine * learnWeight[s] * (- learnLabel[s])
+                oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
 
-                oneMat = np.dot(oneLine.reshape(-1, 1), oneLine.reshape(1, -1))
-                hessian = hessian + oneMat * learnWeight[s]
-            
+            print("making hessian...")
+            hessian = np.zeros((thetaN * thetaN))
+            dim = learnBinMat.shape[1]
+            for s in tqdm(range(learnSample)):
+                idxMat = np.empty((dim, dim)).astype(np.int)
+                idxMat[np.arange(dim)] = base + learnBinMat[s]
+                idxVec = (idxMat + idxMat.T * thetaN).flatten()
+                hessian[idxVec] = hessian[idxVec] + learnWeight[s]
+            hessian = hessian.reshape(thetaN, thetaN)
             assert((hessian == hessian.T).all())
+            
+            # for debug
             #plt.imshow(hessian, cmap='hot', interpolation='nearest')
             #plt.show()
             #exit()
