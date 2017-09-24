@@ -440,6 +440,8 @@ class Test_Factorial(unittest.TestCase):
         self.assertEqual(Factorial(4), 24)
 
 def Combination(n, k):
+    assert(n > 0)
+    assert(n >= k)
     return Factorial(n) / (Factorial(n - k) * Factorial(k))
 class Test_Combination(unittest.TestCase):
     def test_4_0(self):
@@ -452,6 +454,11 @@ class Test_Combination(unittest.TestCase):
         self.assertEqual(Combination(4, 3), 4)
     def test_4_4(self):
         self.assertEqual(Combination(4, 4), 1)
+
+def BinomialVal(n, k, p):
+    assert(p >= 0.0)
+    assert(p <= 1.0)
+    return Combination(n, k) * (p ** k) * (1 - p) ** (n - k)
 
 if "__main__" == __name__:
     unittest.main()
