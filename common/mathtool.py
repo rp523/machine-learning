@@ -460,6 +460,17 @@ def BinomialVal(n, k, p):
     assert(p <= 1.0)
     return Combination(n, k) * (p ** k) * (1 - p) ** (n - k)
 
+def GetEigen(A):
+    return np.linalg.eig(A)
+class Test_Eigen(unittest.TestCase):
+    def test_Eigen(self):
+        A = np.array([[1.0, 0.0],
+                      [0.0, 2.0]])
+        eigenVal, eigenVec = GetEigen(A)
+        self.assertEqual(True, (eigenVal == np.array([1.0, 2.0])).all())
+        self.assertEqual(True, (eigenVec == np.array([[1.0, 0.0],[0.0, 1.0]])).all())
+
+
 if "__main__" == __name__:
     unittest.main()
     
