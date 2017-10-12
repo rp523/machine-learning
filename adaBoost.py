@@ -370,15 +370,10 @@ class CAdaBoost:
                 #    if (0 < histoPos[d][b]) and (0 < histoNeg[d][b]):
                 #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
                 reliability = self.Reliability(h)
-                # 指数関数の発散を防止しつつ、サンプル重みを更新&正規化する
-                posMax = np.max(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]))
-                negMax = np.max( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]))
-    
-                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]) - posMax)
-                posSampleWeight /= np.sum(posSampleWeight)
-    
-                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]) - negMax)
-                negSampleWeight /= np.sum(negSampleWeight)
+                
+                # サンプル重みを更新する
+                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]))
+                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]))
                 
                 # 選択除去された弱識別器の情報を次ループでは考えない
                 trainPosBin = np.delete(trainPosBin, bestDet, axis = 1)
@@ -576,28 +571,28 @@ if "__main__" == __name__:
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
 
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")[:102]
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")[:101]
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:99]
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 4
+    hogParam["Cell"]["Y"] = 8
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
-    adaBoostParam["Regularizer"] = 1e-5
+    adaBoostParam["Regularizer"] = 1e-4
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = True
+    adaBoostParam["saveDetail"] = False
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
