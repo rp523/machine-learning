@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from matplotlib import pyplot as plt
-from common.mathtool import SolveLU
+from common.mathtool import *
 
 class CInfluenceParam(CParam):
     def __init__(self):
@@ -94,6 +94,7 @@ class CInfluence:
             for s in tqdm(range(learnSample)):
                 oneLine = np.zeros(thetaN)
                 oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
+                learnDiffL[s] = oneLine
 
             print("making hessian...")
             hessian = np.zeros((thetaN * thetaN))
@@ -104,7 +105,13 @@ class CInfluence:
                 idxVec = (idxMat + idxMat.T * thetaN).flatten()
                 hessian[idxVec] = hessian[idxVec] + learnWeight[s]
             hessian = hessian.reshape(thetaN, thetaN)
-            assert((hessian == hessian.T).all())
+
+            # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
+            # 強制的に正定値化する
+            hessian = hessian + 0.01 * np.eye(hessian.shape[0])
+            eigen, _ = GetEigen(hessian)
+            assert((eigen > 0.0).all())             # 正定値性(全固有値が正)を確認
+            assert((hessian == hessian.T).all())    # 転置対称性を確認
             
             # for debug
             #plt.imshow(hessian, cmap='hot', interpolation='nearest')
@@ -124,14 +131,8 @@ class CInfluence:
             evalDiffL = np.empty((evalSample, thetaN))
             for s in tqdm(range(evalSample)):
                 oneLine = np.zeros(thetaN)
-                oneLine[base + evalBinMat[s]] = 1
-                evalDiffL[s] = oneLine * evalWeight[s] * (- evalLabel[s])
-            
-            # 平均スケールを1に近づける処理のつもりだったが、これやると結果が変わってしまう
-            # hessian = hessian / np.average(hessian[hessian != 0.0])
-
-            # 対角成分に小さい値を足すことで、無理やり正則化する。あまり良くないかも
-            hessian = hessian + (np.min(hessian[hessian != 0.0]) * 1E-7) * np.eye(hessian.shape[0])
+                oneLine[base + evalBinMat[s]] = evalWeight[s] * (- evalLabel[s])
+                evalDiffL[s] = oneLine
             
             return hessian, learnDiffL, evalDiffL, evalLabel, evalScore
         
