@@ -23,28 +23,30 @@ class CInfluence:
         else:
             self.__param = CInfluenceParam()
 
-        self.__hessian, self.__learnMat, self.__evalMat, self.__evalLabel, self.__evalScore = self.__Prepare()
-        
-    def RefineLearningSample(self):
-        
-        evalTarget = None
-        if self.__param["evalTarget"]["largeNeg"]:
-            negMat     = self.__evalMat[  self.__evalLabel == -1]
-            negScore   = self.__evalScore[self.__evalLabel == -1]
-            maxId = np.argmax(negScore)
-            if negScore[maxId] > 0.5:
-                evalTarget = negMat[maxId]
-        elif self.__param["evalTarget"]["smallPos"]:
-            posMat     = self.__evalMat[  self.__evalLabel == 1]
-            posScore   = self.__evalScore[self.__evalLabel == 1]
-            minId = np.argmin(posScore)
-            if negScore[minId] < 0.5:
-                evalTarget = posMat[minId]
-        assert(not np.isnan(self.__hessian).any())
-        assert(not np.isnan(evalTarget).any())
-        tgtEvalSample = np.where((self.__evalMat == evalTarget).all(axis = 1))
-        tgtEvalSample = int(tgtEvalSample[0][0])
+        self.__hessian, \
+        self.__learnMat, \
+        self.__evalMat, \
+        self.__evalLabel, \
+        self.__evalScore = self.__Prepare(self.__param)
 
+    # スコア低減対称の評価サンプルを選び、そのIDを返す    
+    def __SelectTarget(self, param, mat, score, label):
+        targetID = None
+        if param["evalTarget"]["largeNeg"]:
+            targetScore = np.max(score[label == -1])
+            if targetScore > 0.5:
+                targetID = np.where(score == targetScore)
+        elif self.__param["evalTarget"]["smallPos"]:
+            targetScore = np.min(score[label == 1])
+            if targetScore < 0.5:
+                targetID = np.where(score == targetScore)
+        return targetID
+    
+    # 各学習サンプルの重みが増えた場合の評価サンプル(指定済)損失の変動を得る。
+    def __CalcUpWeighLoss(self, param, mat, score, label, targetID):
+        
+        evalTarget = self.__evalMat[targetID].flatten()
+	
         ref = - SolveLU(self.__hessian, evalTarget)
         assert(not np.isnan(ref).any())
         
@@ -55,15 +57,31 @@ class CInfluence:
             learnVec = self.__learnMat[s]
             upWeightLoss[s] = np.sum(learnVec * ref)
         
+        return upWeightLoss
+        
+    def RefineLearningSample(self):
+        
+        targetID = self.__SelectTarget(param = self.__param,
+                                       mat   = self.__evalMat,
+                                       score = self.__evalScore,
+                                       label = self.__evalLabel)
+        
+        upWeightLoss = \
+        self.__CalcUpWeighLoss(param = self.__param,
+                               mat   = self.__evalMat,
+                               score = self.__evalScore,
+                               label = self.__evalLabel,
+                               targetID = targetID)
+        
         upWeightLoss_argsort = np.argsort(upWeightLoss)
         remainIdx = np.sort(upWeightLoss_argsort[:-self.__param["removeMax"]])
         removeIdx = np.sort(upWeightLoss_argsort[-self.__param["removeMax"]:])
         assert(remainIdx.size + removeIdx.size == upWeightLoss_argsort.size)
         
-        return remainIdx, removeIdx, tgtEvalSample
+        return remainIdx, removeIdx, targetID
     
-    def __Prepare(self):
-        if self.__param["learner"]["RealAdaBoost"]:
+    def __Prepare(self, param):
+        if param["learner"]["RealAdaBoost"]:
             adaBoost = CAdaBoost()
 
             learnFtrMat = adaBoost.Load(type = "learnFeature")
@@ -109,10 +127,13 @@ class CInfluence:
             # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
             # 強制的に正定値化する
             hessian = hessian + 0.01 * np.eye(hessian.shape[0])
-            eigen, _ = GetEigen(hessian)
-            assert((eigen > 0.0).all())             # 正定値性(全固有値が正)を確認
+            assert(not np.isnan(hessian).any())
             assert((hessian == hessian.T).all())    # 転置対称性を確認
             
+            if 0:   # 正定値性(全固有値が正)を確認。かなり重いので一旦OFF
+                eigen, _ = GetEigen(hessian)
+                assert((eigen > 0.0).all())
+        
             # for debug
             #plt.imshow(hessian, cmap='hot', interpolation='nearest')
             #plt.show()

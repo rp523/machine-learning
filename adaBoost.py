@@ -592,7 +592,7 @@ if "__main__" == __name__:
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = False
+    adaBoostParam["saveDetail"] = True
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
@@ -621,3 +621,4 @@ if "__main__" == __name__:
     
     accuracy, auc = gui.evaluateROC(evalScore, evalLabel)
     print(auc)
+    print("Done.")
