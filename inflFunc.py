@@ -6,6 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from common.mathtool import *
+from _nsis import out
 
 class CInfluenceParam(CParam):
     def __init__(self):
@@ -43,10 +44,10 @@ class CInfluence:
         return targetID
     
     # 各学習サンプルの重みが増えた場合の評価サンプル(指定済)損失の変動を得る。
-    def __CalcUpWeighLoss(self, param, mat, score, label, targetID):
+    def CalcUpWeighLoss(self, targetID):
         
         evalTarget = self.__evalMat[targetID].flatten()
-	
+        
         ref = - SolveLU(self.__hessian, evalTarget)
         assert(not np.isnan(ref).any())
         
@@ -67,11 +68,7 @@ class CInfluence:
                                        label = self.__evalLabel)
         
         upWeightLoss = \
-        self.__CalcUpWeighLoss(param = self.__param,
-                               mat   = self.__evalMat,
-                               score = self.__evalScore,
-                               label = self.__evalLabel,
-                               targetID = targetID)
+        self.CalcUpWeighLoss(targetID = targetID)
         
         upWeightLoss_argsort = np.argsort(upWeightLoss)
         remainIdx = np.sort(upWeightLoss_argsort[:-self.__param["removeMax"]])
@@ -156,9 +153,112 @@ class CInfluence:
                 evalDiffL[s] = oneLine
             
             return hessian, learnDiffL, evalDiffL, evalLabel, evalScore
-        
+
+from adaBoost import *
+from feature.hog import *
+def smallSampleTry(remLearnIdx, 
+                   tgtIdx, 
+                   save, 
+                   learn, 
+                   learnLabel, 
+                   eval,
+                   evalLabel):
+    if remLearnIdx:
+        remainIdx = np.append(np.arange(0, remLearnIdx), np.arange(remLearnIdx + 1, len(learn)))
+        learn = learn[remainIdx]
+        learnLabel = learnLabel[remainIdx]
+    hogParam = CHogParam()
+    hogParam["Bin"] = 8
+    hogParam["Cell"]["X"] = 4
+    hogParam["Cell"]["Y"] = 8
+    hogParam["Block"]["X"] = 1
+    hogParam["Block"]["Y"] = 1
+    detectorList = [CHog(hogParam)]
+
+    adaBoostParam = AdaBoostParam()
+    adaBoostParam["Regularizer"] = 1e-5
+    adaBoostParam["Bin"] = 32
+    adaBoostParam["Type"].setTrue("Real")
+    adaBoostParam["verbose"] = False
+    adaBoostParam["saveDetail"] = save
+    
+    adaBoost = CAdaBoost()
+    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
+                        inImgList = learn,
+                        inLabelList = learnLabel,
+                        inDetectorList = detectorList)
+
+    trainScoreMat = np.empty((len(learn), 0))
+    for detector in detectorList:
+        trainScoreMat = np.append(trainScoreMat,
+                                  detector.calc(learn),
+                                  axis = 1)
+
+    adaBoost.Boost(trainScoreMat = trainScoreMat,
+                   labelList = learnLabel)
+    
+    # 評価用の特徴量行列を準備    
+    testScoreMat = np.empty((len(eval), 0))
+    for detector in detectorList:
+        testScoreMat = np.append(testScoreMat,
+                                 detector.calc(eval),
+                                 axis = 1)
+    
+    evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
+                                  label = evalLabel)
+    out = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx])
+    print(evalLabel[tgtIdx], evalScore[tgtIdx], np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]), out)
+    return out
+
+def calcError():
+    for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
+        os.remove(xlsxFile)
+    for matFile in  GetFileList(".", includingText = ".mat"):
+        os.remove(matFile)
+    for csvFile in  GetFileList(".", includingText = ".csv"):
+        os.remove(csvFile)
+    skip = 30
+    tgt = 0
+    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
+    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
+    learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
+    learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
+    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:99]
+    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
+    eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
+    evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
+    refLoss = smallSampleTry(remLearnIdx = None, 
+                             tgtIdx = tgt, 
+                             save = True,
+                             learn = learn,
+                             learnLabel = learnLabel,
+                             eval = eval,
+                             evalLabel = evalLabel)
+    param = CInfluenceParam()
+    influence = CInfluence(inParam = param)
+    upLossVec = influence.CalcUpWeighLoss(targetID = tgt)
+    real = np.arange(upLossVec.size)[::skip].astype(np.float)
+    n = 0
+    for i in np.arange(upLossVec.size)[::skip]:
+        print("realvalue:", i)
+        real[n] = smallSampleTry(remLearnIdx = i,
+                                  tgtIdx = tgt, 
+                                  save = False,
+                                  learn = learn,
+                                  learnLabel = learnLabel,
+                                  eval = eval,
+                                  evalLabel = evalLabel)
+        n += 1
+    print(real)
+    plt.plot(upLossVec[::skip], real - refLoss, ".")
+    plt.show()
+    plt.savefig("real2.png")
+    
 if "__main__" == __name__:
+    calcError()
+    print("Done. ")
+    exit()
+    
     param = CInfluenceParam()
     influence = CInfluence(inParam = param)
     influence.RefineLearningSample()
-    print("Done. ")
