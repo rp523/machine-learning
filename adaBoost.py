@@ -353,7 +353,8 @@ class CAdaBoost:
                 
                 # 最優秀識別器の信頼性を算出
                 if self.__saturate == False:
-                    h = np.log(histoPos[bestDet] + epsilon )/(histoNeg[bestDet] + epsilon)
+                    h = 0.5 * np.log((histoPos[bestDet] + self.__regularize)
+                                    /(histoNeg[bestDet] + self.__regularize))
                 else:
                     alpha = 0.4
                     expPos = np.power(histoPos[bestDet], alpha) + self.__regularize
@@ -588,9 +589,10 @@ if "__main__" == __name__:
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
-    adaBoostParam["Regularizer"] = 1e-4
+    adaBoostParam["Regularizer"] = 0.0#1e-4
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
+    adaBoostParam["Saturate"] = False
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = True
     
