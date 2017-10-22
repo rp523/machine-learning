@@ -29,6 +29,7 @@ class AdaBoostParam(CParam):
         setDicts["regDataDist"] = 0.0
         setDicts["verbose"] = True
         setDicts["saveDetail"] = False
+        setDicts["BoostLoop"] = 1
         super().__init__(setDicts) 
 
 class CAdaBoost:
@@ -46,6 +47,7 @@ class CAdaBoost:
         self.__adaType = adaBoostParam["Type"].nowSelected()
         self.__bin = adaBoostParam["Bin"]
         self.__loopNum = adaBoostParam["Loop"]
+        self.__boostLoop = adaBoostParam["BoostLoop"]
         self.__regularize = adaBoostParam["Regularizer"]
         self.__saturate = adaBoostParam["Saturate"]
         self.__saturateLevel = adaBoostParam["SaturateLevel"]
@@ -318,8 +320,6 @@ class CAdaBoost:
 
         elif self.__adaType == "Real":
             
-            remainDetIDList = np.arange(detectorNum)
-            
             # スコアをBIN値に換算
             trainPosBin = (trainPosScore * self.__bin).astype(np.int)
             trainNegBin = (trainNegScore * self.__bin).astype(np.int)
@@ -329,60 +329,73 @@ class CAdaBoost:
             # 負の値はとらないはずだが、一応確認
             assert(not (trainPosBin < 0).any())
             assert(not (trainNegBin < 0).any())
+            remains = np.ones(detectorNum).astype(np.bool)
 
+            adaTable = np.zeros(strongDetBin.shape)
+            base = np.arange(detectorNum) * self.__bin
             print("real-adaboosting...")
-            for w in tqdm(range(adaLoop)):
+            for w in tqdm(range(min(self.__loopNum, detectorNum * self.__boostLoop))):
 
                 # まだAdaBoostに選択されず残っている識別器の数
-                detRemain = trainPosBin.shape[1]
-                assert(detRemain == trainNegBin.shape[1])
-                
-                # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
-                histoPos = np.zeros((detRemain, self.__bin))
-                histoNeg = np.zeros((detRemain, self.__bin))
-                for b in range(self.__bin):
-                    histoPos[np.arange(detRemain),b] = np.dot((trainPosBin == b).T, posSampleWeight)
-                    histoNeg[np.arange(detRemain),b] = np.dot((trainNegBin == b).T, negSampleWeight)
-                # 残っている弱識別器から最優秀のものを選択            
-                bestDet = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
+                selectFtrNum = np.sum(remains)
+                reliaVec = adaTable.flatten()
+
+                if selectFtrNum > 0:
+                    for s in range(posSample):
+                        posSampleWeight[s] = np.exp(-1 * np.sum(reliaVec[base + trainPosBin[s]])) / posSample
+                    for s in range(negSample):
+                        negSampleWeight[s] = np.exp( 1 * np.sum(reliaVec[base + trainNegBin[s]])) / negSample
+                    # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
+                    histoPos = np.zeros((selectFtrNum, self.__bin))
+                    histoNeg = np.zeros((selectFtrNum, self.__bin))
+                    for b in range(self.__bin):
+                        histoPos[np.arange(selectFtrNum),b] = np.dot((trainPosBin.T[remains] == b), posSampleWeight)
+                        histoNeg[np.arange(selectFtrNum),b] = np.dot((trainNegBin.T[remains] == b), negSampleWeight)
+                    # 残っている弱識別器から最優秀のものを選択
+                    selectDet = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
+                    selectHistPos = histoPos[selectDet]
+                    selectHistNeg = histoNeg[selectDet]
+                else:
+                    # 2週目以降の補正
+                    selectDet = w % detectorNum
+                    for s in range(posSample):
+                        posSampleWeight[s] = np.exp(-1 * np.sum(reliaVec[np.delete(base + trainPosBin[s], selectDet)])) / posSample
+                    for s in range(negSample):
+                        negSampleWeight[s] = np.exp( 1 * np.sum(reliaVec[np.delete(base + trainNegBin[s], selectDet)])) / negSample
+                    # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
+                    selectHistPos = np.zeros(self.__bin)
+                    selectHistNeg = np.zeros(self.__bin)
+                    for b in range(self.__bin):
+                        assert((trainPosBin.T[selectDet] == b).shape == posSampleWeight.shape)
+                        assert((trainNegBin.T[selectDet] == b).shape == negSampleWeight.shape)
+                        selectHistPos[b] = np.sum((trainPosBin.T[selectDet] == b) * posSampleWeight)
+                        selectHistNeg[b] = np.sum((trainNegBin.T[selectDet] == b) * negSampleWeight)
                 
                 #ゼロ割り回避
                 epsilon = 1e-10
-                histoPos += epsilon
-                histoNeg += epsilon
+                selectHistPos += epsilon
+                selectHistNeg += epsilon
                 
                 # 最優秀識別器の信頼性を算出
                 if self.__saturate == False:
-                    h = 0.5 * np.log((histoPos[bestDet] + self.__regularize)
-                                    /(histoNeg[bestDet] + self.__regularize))
+                    h = 0.5 * np.log((selectHistPos + self.__regularize)
+                                    /(selectHistNeg + self.__regularize))
                 else:
                     alpha = 0.4
-                    expPos = np.power(histoPos[bestDet], alpha) + self.__regularize
-                    expNeg = np.power(histoNeg[bestDet], alpha) + self.__regularize
+                    expPos = np.power(selectHistPos, alpha) + self.__regularize
+                    expNeg = np.power(selectHistNeg, alpha) + self.__regularize
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
-                strongDetBin[w] = h
-                strongDetID[w] = remainDetIDList[bestDet]
-    
-                # 選択した最優秀識別器のスコアをもとに、サンプル重みを更新
-                #for i in range(sampleNum):
-                #    d = bestDetectorID
-                #    b = mt.IntMinMax(self.__trainScoreMat[d][i] * self.__bin, 0, self.__bin - 1)
-                #    if (0 < histoPos[d][b]) and (0 < histoNeg[d][b]):
-                #        sampleWeight[i] = sampleWeight[i] * np.exp(-1.0 * self.__labelList[i] * h[b])
-                reliability = self.Reliability(h)
+                if selectFtrNum > 0:
+                    strongDetBin[w] = h
+                    strongDetID[w] = np.arange(detectorNum)[remains][selectDet]
+                    adaTable[strongDetID[w]] = h
+                    remains[strongDetID[w]] = False
+                else:
+                    strongDetBin[np.where(strongDetID == selectDet)] = h
+                    adaTable[selectDet] = h
                 
-                # サンプル重みを更新する
-                posSampleWeight *= np.exp(-1.0 * reliability.calc(bin = trainPosBin.T[bestDet]))
-                negSampleWeight *= np.exp( 1.0 * reliability.calc(bin = trainNegBin.T[bestDet]))
-                
-                # 選択除去された弱識別器の情報を次ループでは考えない
-                trainPosBin = np.delete(trainPosBin, bestDet, axis = 1)
-                trainNegBin = np.delete(trainNegBin, bestDet, axis = 1)
-                remainDetIDList = np.delete(remainDetIDList, bestDet)
-
-                assert(not np.any(np.isnan(strongDetBin)))
-                assert(not np.any(np.isnan(strongDetID)))
+                continue
 
         self.__relia = strongDetBin
         self.__reliaID = strongDetID
@@ -582,8 +595,8 @@ if "__main__" == __name__:
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 4
-    hogParam["Cell"]["Y"] = 8
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -594,7 +607,9 @@ if "__main__" == __name__:
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = False
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = True
+    adaBoostParam["saveDetail"] = False
+    adaBoostParam["Loop"] = 9999999
+    adaBoostParam["BoostLoop"] = 100
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
