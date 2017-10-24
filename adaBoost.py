@@ -577,8 +577,7 @@ class CAdaBoost:
         elif type == "evalLabel":
             return np.array(pd.read_excel(detailPath, sheetname = "eval")["label"])
         
-
-if "__main__" == __name__:
+def main(boostLoop):
 
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
         os.remove(xlsxFile)
@@ -595,8 +594,8 @@ if "__main__" == __name__:
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 4
+    hogParam["Cell"]["Y"] = 8
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -609,7 +608,7 @@ if "__main__" == __name__:
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 9999999
-    adaBoostParam["BoostLoop"] = 100
+    adaBoostParam["BoostLoop"] = boostLoop
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
@@ -637,5 +636,16 @@ if "__main__" == __name__:
                                   label = evalLabel)
     
     accuracy, auc = gui.evaluateROC(evalScore, evalLabel)
-    print(auc)
+    return auc
+
+if "__main__" == __name__:
+    plt.figure()
+    e2len = 8
+    x = 2 ** np.arange(e2len).astype(np.int)
+    y = []
+    for x_i in x:
+        y.append(100.0 * main(int(x_i)))
+    plt.plot(x, y, ".")
+    plt.show()
+    
     print("Done.")
