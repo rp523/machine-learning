@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from common.mathtool import *
-from _nsis import out
+
 
 class CInfluenceParam(CParam):
     def __init__(self):
@@ -103,7 +103,7 @@ class CInfluence:
             learnBinMat[learnBinMat >= adaBin] = adaBin - 1
             
             base = np.arange(featureNum) * adaBin
-
+            
             print("making learnVec...")
             learnDiffL = np.empty((learnSample, thetaN))
             for s in tqdm(range(learnSample)):
@@ -164,13 +164,14 @@ def smallSampleTry(remLearnIdx,
                    eval,
                    evalLabel):
     if remLearnIdx:
-        remainIdx = np.append(np.arange(0, remLearnIdx), np.arange(remLearnIdx + 1, len(learn)))
+        remainIdx = np.ones(len(learn)).astype(np.bool)
+        remainIdx[remLearnIdx] = False
         learn = learn[remainIdx]
         learnLabel = learnLabel[remainIdx]
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 4
-    hogParam["Cell"]["Y"] = 8
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -181,7 +182,10 @@ def smallSampleTry(remLearnIdx,
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = save
-    
+    adaBoostParam["Saturate"] = False
+    adaBoostParam["Regularizer"] = 0.0
+    adaBoostParam["BoostLoop"] = 100
+        
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
                         inImgList = learn,
@@ -217,7 +221,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 30
+    skip = 150
     tgt = 0
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
@@ -237,9 +241,12 @@ def calcError():
     param = CInfluenceParam()
     influence = CInfluence(inParam = param)
     upLossVec = influence.CalcUpWeighLoss(targetID = tgt)
-    real = np.arange(upLossVec.size)[::skip].astype(np.float)
+    
+    skippedIdx = np.arange(upLossVec.size)[::skip]
+    real = np.arange(skippedIdx.size).astype(np.float)
+
     n = 0
-    for i in np.arange(upLossVec.size)[::skip]:
+    for i in skippedIdx:
         print("realvalue:", i)
         real[n] = smallSampleTry(remLearnIdx = i,
                                   tgtIdx = tgt, 
@@ -250,9 +257,8 @@ def calcError():
                                   evalLabel = evalLabel)
         n += 1
     print(real)
-    plt.plot(upLossVec[::skip], real - refLoss, ".")
+    plt.plot(upLossVec[skippedIdx], real - refLoss, ".")
     plt.show()
-    plt.savefig("real2.png")
     
 if "__main__" == __name__:
     calcError()
