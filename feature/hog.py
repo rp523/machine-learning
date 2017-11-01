@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import common.imgtool as imt
 import common.mathtool as mt
 from common.origLib import *
-from tqdm import tqdm
 
 
 class CHogParam(CParam):
@@ -86,13 +85,18 @@ class CHog:
         
         return outM, outT
     
-    def calc(self, srcImgs):
+    def calc(self, srcImgs, log = None):
         batchSize = 32
         sample = srcImgs.shape[0]
         
         scoreMat = np.empty((sample, self.GetFeatureLength()))
-        print("calculating hog...")
-        for l in tqdm(range(sample // batchSize + 1)):
+        
+        if log:
+            print("calculating hog...")
+            logSw = True
+        else:
+            logSw = False
+        for l in IterLog(range(sample // batchSize + 1), logSw):
             batchIdx = np.arange(l * batchSize, min((l + 1)* batchSize, sample))
             scoreMat[batchIdx] = self.__calcBatch(srcImgs[batchIdx])
 
