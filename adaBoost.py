@@ -13,7 +13,6 @@ from common.origLib import *
 from input import *
 from preproc import *
 from decisionTree import *
-from tqdm import tqdm
 import gui
 
 class AdaBoostParam(CParam):
@@ -333,8 +332,10 @@ class CAdaBoost:
 
             adaTable = np.zeros(strongDetBin.shape)
             base = np.arange(detectorNum) * self.__bin
-            print("real-adaboosting...")
-            for w in tqdm(range(min(self.__loopNum, detectorNum * self.__boostLoop))):
+
+            if self.__verbose:
+                print("real-adaboosting...")
+            for w in IterLog(range(min(self.__loopNum, detectorNum * self.__boostLoop)), self.__verbose):
 
                 # まだAdaBoostに選択されず残っている識別器の数
                 selectFtrNum = np.sum(remains)
@@ -420,8 +421,9 @@ class CAdaBoost:
         base = np.arange(self.__reliaID.size) * self.__bin       
         
         if self.__adaType == "Real":
-            print("evaluating sample...")
-            for i in tqdm(range(finalScore.size)):
+            if self.__verbose:
+                print("evaluating sample...")
+            for i in IterLog(range(finalScore.size), self.__verbose):
                 scoreVec = reliaVec[base + binMat[i][self.__reliaID]]
                 finalScore[i] = np.sum(scoreVec)
 
@@ -463,10 +465,12 @@ class CAdaBoost:
         trainBin = (scoreMat * self.__bin).astype(np.int)
         trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
         scores = np.empty(trainBin.shape[0])
-        print("calculating learning-sample for save...")
         base = np.arange(strongID.size) * self.__bin
         strongBinVec = strongBin.flatten()       
-        for s in tqdm(range(scores.size)):
+
+        if self.__verbose:
+            print("calculating learning-sample for save...")
+        for s in IterLog(range(scores.size), self.__verbose):
             scoreVec = strongBinVec[base + trainBin[s][strongID]]
             scores[s] = np.sum(np.sum(scoreVec))
         learnDF["score"] = scores
@@ -524,7 +528,7 @@ class CAdaBoost:
         print("evaluating evaluation-sample for save...")
         base = np.arange(reliaID.size) * self.__bin
         strongBinVec = relia.flatten()       
-        for s in tqdm(range(scores.size)):
+        for s in IterLog(range(scores.size), self.__verbose):
             scoreVec = strongBinVec[base + binScoreMat[s][reliaID]]
             scores[s] = np.sum(np.sum(scoreVec))
         evalDF["score"] = scores
@@ -639,6 +643,10 @@ def main(boostLoop):
     return auc
 
 if "__main__" == __name__:
+    
+    print(main(int(1)))
+    exit()
+    
     plt.figure()
     e2len = 8
     x = 2 ** np.arange(e2len).astype(np.int)

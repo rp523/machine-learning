@@ -4,6 +4,7 @@ import enum
 from matplotlib.font_manager import FontProperties
 from datetime import datetime
 import pandas as pd
+from tqdm import tqdm
 myrica = FontProperties(fname="/home/isgsktyktt/.fonts/Myrica.TTC")
 
 # 自動でアイテムが追加順にsortされるディクショナリ
@@ -154,3 +155,12 @@ def AddXlsxSheet(filePath,
     tmpWriter.save()
     tmpWriter.close()
     shutil.move(tmpPath, filePath)
+
+def IterLog(range, log):
+    if log:
+        return tqdm(range)
+    else :
+        return range
+
+if "__main__" == __name__:
+    pass
