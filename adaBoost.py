@@ -69,23 +69,6 @@ class CAdaBoost:
                 self.__featureLen = self.__featureLen + detector.GetFeatureLength()
         return self.__featureLen
 
-    # PosとNegが混在しているスコア行列からPosのみ、Negのみのスコア行列に分離する
-    def __PosNegDevide(self,inScoreMat,inLabelList):
-        assert(inScoreMat.shape[0] == np.array(inLabelList).size)
-        det = inScoreMat.shape[1]
-        scoreMat = inScoreMat.copy()     # 入力サンプル x 識別器
-        posScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
-        negScoreMat = np.empty((0,det),float)   # 入力サンプル x 識別器
-        for i in range(len(inLabelList)):
-            if 1 == inLabelList[i]:
-                posScoreMat = np.append(posScoreMat, [scoreMat[i]],axis=0)
-            elif -1 == inLabelList[i]:
-                negScoreMat = np.append(negScoreMat, [scoreMat[i]],axis=0)
-            else:
-                assert(0 and "bug!")
-
-        return posScoreMat, negScoreMat
-        
     class Reliability:
         def __init__(self,reliability):
             self.__reliability = reliability
@@ -100,262 +83,68 @@ class CAdaBoost:
         assert(isinstance(labelList, np.ndarray))
         assert(labelList.ndim == 1)
         assert(trainScoreMat.shape[0] == labelList.size)
-        
 
+        posIdx = (labelList ==  1)
+        negIdx = (labelList == -1)
         sampleNum   = trainScoreMat.shape[0]
-        detectorNum = trainScoreMat.shape[1]
-        adaLoop = min(self.__loopNum,detectorNum)
- 
-        # スコア行列をPos/Negで分ける
-        trainPosScore, trainNegScore = self.__PosNegDevide(trainScoreMat, labelList)
-        assert(not np.any(trainPosScore < 0))
-        assert(not np.any(trainNegScore < 0))
-        posSample = trainPosScore.shape[0]
-        negSample = trainNegScore.shape[0]
+        posSampleNum = np.sum(posIdx)
+        negSampleNum = np.sum(negIdx)
+        assert(sampleNum == posSampleNum + negSampleNum)
 
+        featureNum = trainScoreMat.shape[1]
+        adaLoop = min(self.__loopNum, featureNum)
+ 
         # サンプルデータの重みを初期化
-        posSampleWeight = np.array([1.0/(posSample)]*posSample)
-        negSampleWeight = np.array([1.0/(negSample)]*negSample)
-        assert(posSampleWeight.size == posSample)
-        assert(negSampleWeight.size == negSample)
+        sampleWeight = np.empty(sampleNum)
+        sampleWeight[posIdx] = 1.0 / posSampleNum
+        sampleWeight[negIdx] = 1.0 / negSampleNum
     
         # 強識別器情報の記録メモリを確保
-        strongDetBin = np.zeros((adaLoop,self.__bin)).astype(np.float)
-        strongDetID = np.zeros(adaLoop).astype(np.int)
+        boostRelia = np.zeros((adaLoop,self.__bin)).astype(np.float)
+        boostRelia_abs = boostRelia.copy()
+        boostOrder = np.zeros(adaLoop).astype(np.int)
 
         if self.__adaType == "RealTree":
-            
-            def assign(sortScoreVec, sortIndexVec, threshVec):
-                assert(np.array(sortScoreVec).ndim == 1)
-                assert(np.array(sortIndexVec).ndim == 1)
-                assert(np.array(threshVec).ndim == 1)
-                out = []
-                sortIndex = sortIndexVec
-                threshOld = -1e10
-                for thresh in threshVec:
-                    valid = ((threshOld < sortScoreVec) * (sortScoreVec <= thresh)).astype(np.bool)
-                    out.append(list(sortIndex[valid]))
-
-                    invalid = np.bitwise_not(valid)
-                    sortIndex = sortIndex[invalid]    # delete selected-ones.
-                    sortScoreVec = sortScoreVec[invalid]
-                    threshOld = thresh
-                out.append(list(sortIndex)) # ones over the max thresh
-                return out
-                        
-            labelList = np.array(self.__labelList).astype(np.int)
-            sampleWeights = np.ones(sampleNum)
-            sampleWeights[labelList ==  1] = sampleWeights[labelList ==  1] / np.sum(sampleWeights[labelList ==  1])
-            sampleWeights[labelList == -1] = sampleWeights[labelList == -1] / np.sum(sampleWeights[labelList == -1])
-            
-            nodes = []
-            sampleIndexes = np.arange(sampleNum)
-            
-            assert(self.__trainScoreMat.shape[0] == detectorNum)
-            for d in range(detectorNum):
-                assert(np.min(self.__trainScoreMat[d]) != np.max(self.__trainScoreMat[d]))
-                assert(np.min(labelList) != np.max(labelList))
-                sortIndex = np.argsort(self.__trainScoreMat[d])
-                node = DecisionTree.Node(   scoreVec = self.__trainScoreMat[d][sortIndex],
-                                            labelVec = labelList[sortIndex],
-                                            maxDepth = self.__treeDepth,
-                                            regDataDist = self.__regDataDist)
-                if (len(node.getThresh()) <= 0):
-                    print(node.getThresh())
-                    print(self.__trainScoreMat[d][sortIndex])
-                    print(labelList[sortIndex])
-                assert(len(node.getThresh()) > 0)
-                if(np.max(node.getThresh()) == np.min(node.getThresh())):
-                    print(node.getThresh())
-                nodes.append(node)
-            
-            detIdxSaved = np.arange(detectorNum)
-            detIdx = detIdxSaved
-            self.__treeThresh = []
-            self.__treeScore = []
-
-            sortIndexMat = np.zeros((detectorNum, sampleNum)).astype(np.int)
-            sortIndexMat[np.arange(detectorNum)] = np.arange(sampleNum)
-            sortScoreMat = np.empty((detectorNum, sampleNum))
-            argsortScoreMat = np.zeros((detectorNum, sampleNum)).astype(np.int)
-            for d in range(detectorNum):
-                argsortScoreMat[d] = np.argsort(self.__trainScoreMat[d])
-                sortScoreMat[d] = self.__trainScoreMat[d][argsortScoreMat[d]]
-                sortIndexMat[d] =sortIndexMat[d][argsortScoreMat[d]]
-
-            assignedListMat = []    
-            for d in range(detectorNum):
-                assignedList = assign(sortScoreVec = sortScoreMat[d],
-                                      sortIndexVec = sortIndexMat[d],
-                                      threshVec = nodes[d].getThresh())
-                assert(isinstance(assignedList, list))
-                assignedListMat.append(assignedList)
-
-            # 指定数だけ弱識別器をブースト選択するループ
-            for w in range(adaLoop):
-                
-                # ブーストの過程で長さを変えない
-                assert(sampleWeights.size == sampleNum)
-                assert(labelList.size == sampleNum)
-                
-                # まだ選択されず残っている弱識別器の中からベストを決める
-                Z  = np.zeros(detIdx.size)
-                Wp = np.zeros((detIdx.size, 2 ** self.__treeDepth))
-                Wm = np.zeros((detIdx.size, 2 ** self.__treeDepth))
-
-                for d in range(detIdx.size):
-                    for a in range(len(assignedListMat[d])):
-                        assigned = assignedListMat[d][a]
-                        assert(isinstance(assigned,list))
-                        assigned = np.array(assigned)
-                        if assigned.size > 0:
-                            assert(assigned.ndim == 1)
-                            isPositive = (labelList[assigned] ==  1)
-                            isNegative = np.bitwise_not(isPositive)
-                            Wp[d][a] = np.sum( sampleWeights[assigned] * isPositive)
-                            Wm[d][a] = np.sum( sampleWeights[assigned] * isNegative)
-
-                Z = np.sqrt( np.sum(Wp * Wm, axis = 1))
-                assert(Wp.shape == (detIdx.size, 2 ** self.__treeDepth))
-                assert(Wm.shape == (detIdx.size, 2 ** self.__treeDepth))
-                assert(Z.size == detIdx.size)
-                bestIdx  = np.argmin(Z)
-                finalIdx = detIdx[bestIdx]
-                bestAssignLen = len(assignedListMat[bestIdx])
-
-                epsilon = 1e-10
-                if not self.__saturate:
-                    reliabilityBest  = 0.5 * np.log((Wp[bestIdx] + epsilon + self.__regularize) \
-                                                  / (Wm[bestIdx] + epsilon + self.__regularize))
-                else:
-                    WpBest = (Wp[bestIdx] + self.__regularize) ** self.__saturateLevel
-                    WmBest = (Wm[bestIdx] + self.__regularize) ** self.__saturateLevel
-                    WpBest = WpBest[:bestAssignLen]
-                    WmBest = WmBest[:bestAssignLen]
-                    assert(WpBest.ndim == 1)
-                    assert(WmBest.ndim == 1)
-                    assert(WpBest.size == bestAssignLen)
-                    assert(WmBest.size == bestAssignLen)
-                    if (WpBest + WmBest != 0.0).all():
-                        reliabilityBest = (WpBest - WmBest) / (WpBest + WmBest)
-                    else:
-                        assert(0)
-                
-                assert((reliabilityBest != 0.0).any())
-                
-                # record selected feature
-                self.__treeThresh.append(nodes[finalIdx].getThresh())
-                self.__treeScore.append(list(reliabilityBest))
-
-                if not (reliabilityBest.size == bestAssignLen):
-                    print(reliabilityBest.size, bestAssignLen)
-                assert(reliabilityBest.size == bestAssignLen)
-
-                # サンプル重みを更新し、ポジネガそれぞれ正規化
-                scores = np.empty(sampleNum)
-
-                for a in range(len(assignedListMat[bestIdx])):
-                    assigned = assignedListMat[bestIdx][a]
-                    scores[assigned] = reliabilityBest[a]
-                assert(scores.size == sampleNum)
-
-                sampleWeights = sampleWeights * (np.exp( - labelList * scores)) # - np.max( - labelList * scores)
-                sampleWeights[labelList ==  1] = sampleWeights[labelList ==  1] / np.sum(sampleWeights[labelList ==  1])
-                sampleWeights[labelList == -1] = sampleWeights[labelList == -1] / np.sum(sampleWeights[labelList == -1])
-                assert(not np.any(np.isnan(sampleWeights)))
-                assert(np.all(sampleWeights > 0))
-                
-                strongDetID[w] = finalIdx
-                detIdx = np.delete(detIdx, bestIdx)
-                sortScoreMat = np.delete(sortScoreMat, bestIdx, axis = 0)
-                del assignedListMat[bestIdx]
-                
-                if self.__verbose:
-                    print("boosting weak detector:", w + 1)
-
+            assert(0)
         elif self.__adaType == "Discrete":
-            
-            self.__decisionTree = DecisionTree(scoreMat = self.__trainScoreMat,
-                                        labelVec = self.__labelList,
-                                        maxDepth = 2)
-            scoreMat = self.__decisionTree.predict(np.arange(detectorNum), self.__trainScoreMat)
-
-            detIdxSaved = np.arange(detectorNum)
-            detIdx = detIdxSaved    
-            self.__detWeights = np.empty(adaLoop)
-
-            sampleWeights = np.ones(sampleNum) / sampleNum
-            assert(sampleWeights.size == sampleNum)
-            
-            yfMatSaved = (scoreMat * self.__labelList).astype(np.int)
-            yfMat = yfMatSaved
-            
-            for w in range(adaLoop):
-                
-                assert(detIdx.size == yfMat.shape[0])
-                errorSum = np.sum(sampleWeights * (yfMat < 0), axis = 1)
-                assert(detIdx.size == errorSum.size)
-                bestIdx  = np.argmin(errorSum)
-
-                epsilon = 1e-10
-                reliabilityBest  = 0.5 * np.log((1.0 - errorSum[bestIdx] + epsilon + self.__regularize) \
-                                                    / (errorSum[bestIdx] + epsilon + self.__regularize))
-                
-                self.__detWeights[w] = reliabilityBest
-
-                # サンプル重みを更新し、ポジネガそれぞれ正規化
-                sampleWeights = sampleWeights * np.exp( - self.__detWeights[w] * yfMat[bestIdx]
-                                                    - np.max( - self.__detWeights[w] * yfMat[bestIdx]))
-                sampleWeights = sampleWeights / np.sum(sampleWeights)
-                assert(not np.any(np.isnan(sampleWeights)))
-                assert(np.all(sampleWeights > 0))
-                
-                strongDetID[w] = detIdx[bestIdx]
-                detIdx = np.delete(detIdx, bestIdx)
-                yfMat  = np.delete(yfMat,  bestIdx, axis = 0)
-
-                if self.__verbose:
-                    print("boosting weak detector:", w + 1)
-
+            assert(0)
         elif self.__adaType == "Real":
             
             # スコアをBIN値に換算
-            trainPosBin = (trainPosScore * self.__bin).astype(np.int)
-            trainNegBin = (trainNegScore * self.__bin).astype(np.int)
+            trainBinMat = (trainScoreMat * self.__bin).astype(np.int)
             # 万が一値がBIN値と同じ場合はBIN-1としてカウントする
-            trainPosBin = trainPosBin * (trainPosBin < self.__bin) + (self.__bin - 1) * (trainPosBin >= self.__bin)   
-            trainNegBin = trainNegBin * (trainNegBin < self.__bin) + (self.__bin - 1) * (trainNegBin >= self.__bin)
+            trainBinMat = trainBinMat * (trainBinMat < self.__bin) + (self.__bin - 1) * (trainBinMat >= self.__bin)   
             # 負の値はとらないはずだが、一応確認
-            assert(not (trainPosBin < 0).any())
-            assert(not (trainNegBin < 0).any())
-            remains = np.ones(detectorNum).astype(np.bool)
+            assert(not (trainBinMat < 0).any())
 
-            adaTable = np.zeros(strongDetBin.shape)
-            base = np.arange(detectorNum) * self.__bin
+            # まだ選択されず残っている特徴をマーキング
+            remains = np.ones(featureNum).astype(np.bool)
+
+            base = np.arange(featureNum) * self.__bin
 
             if self.__verbose:
                 print("real-adaboosting...")
-            for w in IterLog(range(min(self.__loopNum, detectorNum * self.__boostLoop)), self.__verbose):
+            for w in IterLog(range(min(self.__loopNum, featureNum * self.__boostLoop)), self.__verbose):
 
                 # まだAdaBoostに選択されず残っている識別器の数
-                selectFtrNum = np.sum(remains)
-                reliaVec = adaTable.flatten()
+                remainNum = np.sum(remains)
+                
+                if remainNum > 0:
+                    for s in range(sampleNum):
+                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia_abs.flatten()[base + trainBinMat[s]]))
+                    sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
+                    sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
 
-                if selectFtrNum > 0:
-                    for s in range(posSample):
-                        posSampleWeight[s] = np.exp(-1 * np.sum(reliaVec[base + trainPosBin[s]])) / posSample
-                    for s in range(negSample):
-                        negSampleWeight[s] = np.exp( 1 * np.sum(reliaVec[base + trainNegBin[s]])) / negSample
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
-                    histoPos = np.zeros((selectFtrNum, self.__bin))
-                    histoNeg = np.zeros((selectFtrNum, self.__bin))
+                    histoPos = np.zeros((remainNum, self.__bin))
+                    histoNeg = np.zeros((remainNum, self.__bin))
                     for b in range(self.__bin):
-                        histoPos[np.arange(selectFtrNum),b] = np.dot((trainPosBin.T[remains] == b), posSampleWeight)
-                        histoNeg[np.arange(selectFtrNum),b] = np.dot((trainNegBin.T[remains] == b), negSampleWeight)
+                        histoPos[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
+                        histoNeg[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
                     # 残っている弱識別器から最優秀のものを選択
-                    selectDet = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
-                    selectHistPos = histoPos[selectDet]
-                    selectHistNeg = histoNeg[selectDet]
+                    remainBestID = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
+                    selectHistPos = histoPos[remainBestID]
+                    selectHistNeg = histoNeg[remainBestID]
                 else:
                     # 2週目以降の補正
                     selectDet = w % detectorNum
@@ -372,38 +161,35 @@ class CAdaBoost:
                         selectHistPos[b] = np.sum((trainPosBin.T[selectDet] == b) * posSampleWeight)
                         selectHistNeg[b] = np.sum((trainNegBin.T[selectDet] == b) * negSampleWeight)
                 
-                #ゼロ割り回避
-                epsilon = 1e-10
-                selectHistPos += epsilon
-                selectHistNeg += epsilon
-                
                 # 最優秀識別器の信頼性を算出
+                epsilon = 1e-10 #ゼロ割り回避
                 if self.__saturate == False:
-                    h = 0.5 * np.log((selectHistPos + self.__regularize)
-                                    /(selectHistNeg + self.__regularize))
+                    h = 0.5 * np.log((selectHistPos + self.__regularize + epsilon)
+                                    /(selectHistNeg + self.__regularize + epsilon))
                 else:
                     alpha = 0.4
                     expPos = np.power(selectHistPos, alpha) + self.__regularize
                     expNeg = np.power(selectHistNeg, alpha) + self.__regularize
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
-                if selectFtrNum > 0:
-                    strongDetBin[w] = h
-                    strongDetID[w] = np.arange(detectorNum)[remains][selectDet]
-                    adaTable[strongDetID[w]] = h
-                    remains[strongDetID[w]] = False
+                if remainNum > 0:
+                    boostRelia[w] = h
+                    selectID_abs = np.arange(featureNum)[remains][remainBestID]
+                    boostOrder[w] = selectID_abs
+                    boostRelia_abs[selectID_abs] = h
+                    remains[selectID_abs] = False
                 else:
                     strongDetBin[np.where(strongDetID == selectDet)] = h
                     adaTable[selectDet] = h
                 
                 continue
 
-        self.__relia = strongDetBin
-        self.__reliaID = strongDetID
+        self.__relia = boostRelia
+        self.__reliaID = boostOrder
 
         if self.__saveDetail:
-            self.__SaveLearning(strongDetBin,
-                                strongDetID,
+            self.__SaveLearning(boostRelia,
+                                boostOrder,
                                 trainScoreMat,
                                 labelList)
 
@@ -525,7 +311,8 @@ class CAdaBoost:
         binScoreMat = (scoreMat * self.__bin).astype(np.int)
         binScoreMat[binScoreMat >= self.__bin] = self.__bin - 1
         scores = np.empty(binScoreMat.shape[0])
-        print("evaluating evaluation-sample for save...")
+        if self.__verbose:
+            print("evaluating evaluation-sample for save...")
         base = np.arange(reliaID.size) * self.__bin
         strongBinVec = relia.flatten()       
         for s in IterLog(range(scores.size), self.__verbose):
@@ -609,8 +396,8 @@ def main(boostLoop):
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = False
-    adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = False
+    adaBoostParam["verbose"] = True
+    adaBoostParam["saveDetail"] = True
     adaBoostParam["Loop"] = 9999999
     adaBoostParam["BoostLoop"] = boostLoop
     
