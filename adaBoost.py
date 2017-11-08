@@ -182,6 +182,7 @@ class CAdaBoost:
                     strongDetBin[np.where(strongDetID == selectDet)] = h
                     adaTable[selectDet] = h
                 
+                print(self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum)))
                 continue
 
         self.__relia = boostRelia
@@ -230,13 +231,24 @@ class CAdaBoost:
         if self.__saveDetail:
             self.__SaveEvaluation(scoreMat = testScoreMat,
                                   label = label,
-                                  relia = self.__relia,
-                                  reliaID = self.__reliaID)
+                                  boostRelia = self.__relia,
+                                  boostOrder = self.__reliaID)
             
         out = np.array(finalScore)
         return out
     
-    def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin):
+    def __CalcLoss(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum):
+        
+        scoreVec = self.__CalcScore(boostRelia, boostOrder, scoreMat, label, bin, selectedNum)
+        return np.sum(np.exp(-1 * label * scoreVec))
+        
+    def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum = None):
+
+        if selectedNum:
+            selected = selectedNum
+        else:
+            selected = boostRelia.shape[0]
+        
         # スコアをBIN値に換算
         binMat = (scoreMat * bin).astype(np.int)
         binMat = binMat * (binMat < bin) + (bin - 1) * (binMat >= bin)
@@ -247,7 +259,7 @@ class CAdaBoost:
         if self.__verbose:
             print("calculating scores for every sample...")
         for s in IterLog(range(dstScoreVec.size), self.__verbose):
-            dstScoreVec[s] = np.sum(np.sum(boostReliaVec[base + binMat[s][boostOrder]]))
+            dstScoreVec[s] = np.sum(np.sum(boostReliaVec[base + binMat[s][boostOrder]][:selected]))
         return dstScoreVec
     
     # AdaBoostの計算過程を記録する(optional)
@@ -292,17 +304,17 @@ class CAdaBoost:
     def __SaveEvaluation(self, 
                          scoreMat,
                          label,
-                         relia,
-                         reliaID,
+                         boostRelia,
+                         boostOrder,
                          detailPath = None):
         assert(isinstance(scoreMat, np.ndarray))
         assert(isinstance(label, np.ndarray))
-        assert(isinstance(relia, np.ndarray))
-        assert(isinstance(reliaID, np.ndarray))
+        assert(isinstance(boostRelia, np.ndarray))
+        assert(isinstance(boostOrder, np.ndarray))
         assert(scoreMat.ndim == 2)
         assert(label.ndim == 1)
-        assert(relia.ndim == 2)
-        assert(reliaID.ndim == 1)
+        assert(boostRelia.ndim == 2)
+        assert(boostOrder.ndim == 1)
         assert(scoreMat.shape[0] == label.size)
         
         if None == detailPath:
@@ -315,17 +327,11 @@ class CAdaBoost:
         evalDF["label"] = label
 
         # 評価スコアを記録
-        binScoreMat = (scoreMat * self.__bin).astype(np.int)
-        binScoreMat[binScoreMat >= self.__bin] = self.__bin - 1
-        scores = np.empty(binScoreMat.shape[0])
-        if self.__verbose:
-            print("evaluating evaluation-sample for save...")
-        base = np.arange(reliaID.size) * self.__bin
-        strongBinVec = relia.flatten()       
-        for s in IterLog(range(scores.size), self.__verbose):
-            scoreVec = strongBinVec[base + binScoreMat[s][reliaID]]
-            scores[s] = np.sum(np.sum(scoreVec))
-        evalDF["score"] = scores
+        evalDF["score"] = self.__CalcScore(boostRelia = boostRelia,
+                                           boostOrder = boostOrder,
+                                           scoreMat = scoreMat,
+                                           label = label,
+                                           bin = self.__bin)
 
         # 全特徴スコアを記録
         featureColumn = []
@@ -403,7 +409,7 @@ def main(boostLoop):
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = False
-    adaBoostParam["verbose"] = True
+    adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = True
     adaBoostParam["Loop"] = 9999999
     adaBoostParam["BoostLoop"] = boostLoop
