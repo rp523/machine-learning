@@ -235,8 +235,23 @@ class CAdaBoost:
             
         out = np.array(finalScore)
         return out
+    
+    def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin):
+        # スコアをBIN値に換算
+        binMat = (scoreMat * bin).astype(np.int)
+        binMat = binMat * (binMat < bin) + (bin - 1) * (binMat >= bin)
+        dstScoreVec = np.empty(binMat.shape[0])
+        base = np.arange(boostOrder.size) * bin
+        boostReliaVec = boostRelia.flatten()       
+
+        if self.__verbose:
+            print("calculating scores for every sample...")
+        for s in IterLog(range(dstScoreVec.size), self.__verbose):
+            dstScoreVec[s] = np.sum(np.sum(boostReliaVec[base + binMat[s][boostOrder]]))
+        return dstScoreVec
+    
     # AdaBoostの計算過程を記録する(optional)
-    def __SaveLearning(self, strongBin, strongID, scoreMat, trainLabel):
+    def __SaveLearning(self, boostRelia, boostOrder, scoreMat, trainLabel):
 
         # xlsxファイルに出力
         writer = pd.ExcelWriter("adaBoostDetail.xlsx", engine = 'xlsxwriter')
@@ -247,19 +262,11 @@ class CAdaBoost:
         # ラベルの記録
         learnDF["label"] = trainLabel
         
-        # スコアをBIN値に換算
-        trainBin = (scoreMat * self.__bin).astype(np.int)
-        trainBin = trainBin * (trainBin < self.__bin) + (self.__bin - 1) * (trainBin >= self.__bin)
-        scores = np.empty(trainBin.shape[0])
-        base = np.arange(strongID.size) * self.__bin
-        strongBinVec = strongBin.flatten()       
-
-        if self.__verbose:
-            print("calculating learning-sample for save...")
-        for s in IterLog(range(scores.size), self.__verbose):
-            scoreVec = strongBinVec[base + trainBin[s][strongID]]
-            scores[s] = np.sum(np.sum(scoreVec))
-        learnDF["score"] = scores
+        learnDF["score"] = self.__CalcScore(boostRelia = boostRelia,
+                                            boostOrder = boostOrder,
+                                            scoreMat = scoreMat,
+                                            label = trainLabel,
+                                            bin = self.__bin)
 
         # 全特徴スコアの記録
         for i in range(scoreMat.shape[1]):
@@ -271,11 +278,11 @@ class CAdaBoost:
         adaBoostDF = pd.DataFrame()
         
         # 特徴選択順
-        adaBoostDF["boostOrder"] = strongID
+        adaBoostDF["boostOrder"] = boostOrder
         
         # 全寄与度の記録(選択順)
-        for i in range(strongBin.shape[1]):
-            adaBoostDF["bin{0}".format(i)] = strongBin.T[i]
+        for i in range(boostRelia.shape[1]):
+            adaBoostDF["bin{0}".format(i)] = boostRelia.T[i]
         adaBoostDF.to_excel(writer, sheet_name = "adaBoost")
         
         writer.save()
