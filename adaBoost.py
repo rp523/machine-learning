@@ -147,19 +147,20 @@ class CAdaBoost:
                     selectHistNeg = histoNeg[remainBestID]
                 else:
                     # 2週目以降の補正
-                    selectDet = w % detectorNum
-                    for s in range(posSample):
-                        posSampleWeight[s] = np.exp(-1 * np.sum(reliaVec[np.delete(base + trainPosBin[s], selectDet)])) / posSample
-                    for s in range(negSample):
-                        negSampleWeight[s] = np.exp( 1 * np.sum(reliaVec[np.delete(base + trainNegBin[s], selectDet)])) / negSample
+                    selectFeature_abs = boostOrder[w % featureNum]
+                    for s in range(sampleNum):
+                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia_abs.flatten()[np.delete(base + trainBinMat[s], selectFeature_abs)]))
+                    sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
+                    sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
-                    selectHistPos = np.zeros(self.__bin)
-                    selectHistNeg = np.zeros(self.__bin)
+                    histoPos = np.zeros((featureNum, self.__bin))
+                    histoNeg = np.zeros((featureNum, self.__bin))
                     for b in range(self.__bin):
-                        assert((trainPosBin.T[selectDet] == b).shape == posSampleWeight.shape)
-                        assert((trainNegBin.T[selectDet] == b).shape == negSampleWeight.shape)
-                        selectHistPos[b] = np.sum((trainPosBin.T[selectDet] == b) * posSampleWeight)
-                        selectHistNeg[b] = np.sum((trainNegBin.T[selectDet] == b) * negSampleWeight)
+                        histoPos[np.arange(featureNum),b] = np.dot((trainBinMat[posIdx].T == b), sampleWeight[posIdx])
+                        histoNeg[np.arange(featureNum),b] = np.dot((trainBinMat[negIdx].T == b), sampleWeight[negIdx])
+                    # 残っている弱識別器から最優秀のものを選択
+                    selectHistPos = histoPos[selectFeature_abs]
+                    selectHistNeg = histoNeg[selectFeature_abs]
                 
                 # 最優秀識別器の信頼性を算出
                 epsilon = 1e-10 #ゼロ割り回避
@@ -179,10 +180,11 @@ class CAdaBoost:
                     boostRelia_abs[selectID_abs] = h
                     remains[selectID_abs] = False
                 else:
-                    strongDetBin[np.where(strongDetID == selectDet)] = h
-                    adaTable[selectDet] = h
+                    boostRelia[np.where(boostOrder == selectFeature_abs)] = h
+                    boostRelia_abs[selectFeature_abs] = h
                 
-                print(self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum)))
+                if 1:#(w > 0) and (w % featureNum == 0 ):
+                    print(w, self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum)))
                 continue
 
         self.__relia = boostRelia
@@ -240,7 +242,10 @@ class CAdaBoost:
     def __CalcLoss(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum):
         
         scoreVec = self.__CalcScore(boostRelia, boostOrder, scoreMat, label, bin, selectedNum)
-        return np.sum(np.exp(-1 * label * scoreVec))
+        lossVec = np.exp(-1 * label * scoreVec)
+        lossVec[label ==  1] = lossVec[label ==  1] / np.sum(label ==  1)
+        lossVec[label == -1] = lossVec[label == -1] / np.sum(label == -1)
+        return np.sum(lossVec)
         
     def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum = None):
 
@@ -398,8 +403,8 @@ def main(boostLoop):
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 4
-    hogParam["Cell"]["Y"] = 8
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -410,7 +415,7 @@ def main(boostLoop):
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = False
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = True
+    adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 9999999
     adaBoostParam["BoostLoop"] = boostLoop
     
@@ -444,7 +449,7 @@ def main(boostLoop):
 
 if "__main__" == __name__:
     
-    print(main(int(1)))
+    print(main(int(5)))
     exit()
     
     plt.figure()

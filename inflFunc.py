@@ -57,6 +57,8 @@ class CInfluence:
         for s in tqdm(range(learnSample)):
             learnVec = self.__learnMat[s]
             upWeightLoss[s] = np.sum(learnVec * ref)
+        upWeightLoss[self.__learnLabel ==  1] = upWeightLoss[self.__learnLabel ==  1] / np.sum(self.__learnLabel ==  1)
+        upWeightLoss[self.__learnLabel == -1] = upWeightLoss[self.__learnLabel == -1] / np.sum(self.__learnLabel == -1)
         
         return upWeightLoss
         
@@ -67,8 +69,7 @@ class CInfluence:
                                        score = self.__evalScore,
                                        label = self.__evalLabel)
         
-        upWeightLoss = \
-        self.CalcUpWeighLoss(targetID = targetID)
+        upWeightLoss = self.CalcUpWeighLoss(targetID = targetID)
         
         upWeightLoss_argsort = np.argsort(upWeightLoss)
         remainIdx = np.sort(upWeightLoss_argsort[:-self.__param["removeMax"]])
@@ -86,7 +87,10 @@ class CInfluence:
             id = adaBoost.Load(type = "boostOrder")
             learnScore = adaBoost.Load(type = "learnScore")
             learnLabel = adaBoost.Load(type = "learnLabel")
+            
             learnWeight = np.exp(- learnLabel * learnScore)
+            learnWeight[learnLabel ==  1] = learnWeight[learnLabel ==  1] / np.sum(learnLabel ==  1)
+            learnWeight[learnLabel == -1] = learnWeight[learnLabel == -1] / np.sum(learnLabel == -1)
 
             assert(learnFtrMat.shape[0] == learnScore.size)
             assert((learnFtrMat >= 0.0).all())
@@ -140,7 +144,11 @@ class CInfluence:
             evalFtrMat = adaBoost.Load(type = "evalFeature")
             evalScore = adaBoost.Load(type = "evalScore")
             evalLabel = adaBoost.Load(type = "evalLabel")
+
             evalWeight = np.exp(- evalLabel * evalScore)
+            evalWeight[evalLabel ==  1] = evalWeight[evalLabel ==  1] / np.sum(learnLabel ==  1)
+            evalWeight[evalLabel == -1] = evalWeight[evalLabel == -1] / np.sum(learnLabel == -1)
+
             evalSample = evalFtrMat.shape[0]
 
             # スコアをAdaBoostのBinで量子化
@@ -152,6 +160,8 @@ class CInfluence:
                 oneLine[base + evalBinMat[s]] = evalWeight[s] * (- evalLabel[s])
                 evalDiffL[s] = oneLine
             
+            self.__learnLabel = learnLabel
+            self.__evalLabel  = evalLabel
             return hessian, learnDiffL, evalDiffL, evalLabel, evalScore
 
 from adaBoost import *
@@ -177,14 +187,14 @@ def smallSampleTry(remLearnIdx,
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
-    adaBoostParam["Regularizer"] = 1e-5
+    adaBoostParam["Regularizer"] = 0.0#1e-5
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = save
     adaBoostParam["Saturate"] = False
     adaBoostParam["Regularizer"] = 0.0
-    adaBoostParam["BoostLoop"] = 100
+    adaBoostParam["BoostLoop"] = 128
         
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
@@ -221,7 +231,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 150
+    skip = 100
     tgt = 0
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
