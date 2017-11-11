@@ -48,15 +48,11 @@ class CInfluence:
         
         evalTarget = self.__evalMat[targetID].flatten()
         
-        ref = - SolveLU(self.__hessian, evalTarget)
-        assert(not np.isnan(ref).any())
-        
-        learnSample = self.__learnMat.shape[0]
-        print("searching harmful learning-sample...")
-        upWeightLoss = np.empty(learnSample)
-        for s in tqdm(range(learnSample)):
-            learnVec = self.__learnMat[s]
-            upWeightLoss[s] = np.sum(learnVec * ref)
+        invhes_x_evalLos = - SolveLU(self.__hessian, evalTarget)
+        assert(not np.isnan(invhes_x_evalLos).any())
+        assert(invhes_x_evalLos.shape == (self.__evalMat.shape[1],))
+        upWeightLoss = np.dot(self.__learnMat, invhes_x_evalLos)
+        assert(upWeightLoss.shape == (self.__learnLabel.size,))
         upWeightLoss[self.__learnLabel ==  1] = upWeightLoss[self.__learnLabel ==  1] / np.sum(self.__learnLabel ==  1)
         upWeightLoss[self.__learnLabel == -1] = upWeightLoss[self.__learnLabel == -1] / np.sum(self.__learnLabel == -1)
         
@@ -127,11 +123,11 @@ class CInfluence:
 
             # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
             # 強制的に正定値化する
-            hessian = hessian + 0.01 * np.eye(hessian.shape[0])
+            hessian = hessian + 0.001 * np.eye(hessian.shape[0])
             assert(not np.isnan(hessian).any())
             assert((hessian == hessian.T).all())    # 転置対称性を確認
             
-            if 0:   # 正定値性(全固有値が正)を確認。かなり重いので一旦OFF
+            if 1:   # 正定値性(全固有値が正)を確認。かなり重い
                 eigen, _ = GetEigen(hessian)
                 assert((eigen > 0.0).all())
         
@@ -194,7 +190,7 @@ def smallSampleTry(remLearnIdx,
     adaBoostParam["saveDetail"] = save
     adaBoostParam["Saturate"] = False
     adaBoostParam["Regularizer"] = 0.0
-    adaBoostParam["BoostLoop"] = 128
+    adaBoostParam["BoostLoop"] = 1
         
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
@@ -220,9 +216,9 @@ def smallSampleTry(remLearnIdx,
     
     evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
                                   label = evalLabel)
-    out = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx])
-    print(evalLabel[tgtIdx], evalScore[tgtIdx], np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]), out)
-    return out
+    loss = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]) / np.sum(evalLabel == evalLabel[tgtIdx])
+    print(evalLabel[tgtIdx], evalScore[tgtIdx], loss)
+    return loss
 
 def calcError():
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
