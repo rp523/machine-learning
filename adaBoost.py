@@ -176,7 +176,7 @@ class CAdaBoost:
                 else:
                     boostRelia[np.where(boostOrder == selectFeature_abs)] = h
                 
-                if 1:#(w > 0) and (w % featureNum == 0 ):
+                if 0:#(w > 0) and (w % featureNum == 0 ):
                     learnLoss = self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum))
                     if isinstance(evalScoreMat, np.ndarray) and isinstance(evalLabel, np.ndarray):
                         evalLoss = self.__CalcLoss(boostRelia, boostOrder, evalScoreMat, evalLabel, self.__bin, (featureNum - remainNum))

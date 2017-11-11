@@ -13,7 +13,7 @@ def GetDirList(path,onlyName=None):
             ret.append(addItem)
     return ret
 
-def GetFileList(path,includingText=None,onlyName=None,recursive=None):
+def GetFileList(path,includingText = None, onlyName = None, suffix = None, recursive = None):
     ret = []
     itemNameList = os.listdir(path)
     for itemName in itemNameList:
@@ -21,6 +21,9 @@ def GetFileList(path,includingText=None,onlyName=None,recursive=None):
         if os.path.isfile(itemPath):
             if (None != includingText):
                 if (0 > itemName.find(includingText)):
+                    continue
+            if (None != suffix):
+                if (len(itemName) != itemName.rfind(suffix) + len(suffix)):
                     continue
             if True == onlyName:
                 addItem = itemName

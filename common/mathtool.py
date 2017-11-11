@@ -408,7 +408,7 @@ class Test_LU(unittest.TestCase):
         b = np.array([7, 6, 8])
         x = SolveLU(A, b)
         xExpected = np.dot(np.linalg.inv(A), b)
-        self.assertEqual(False, np.isnan(x).any())
+        self.assertEqual(True,(abs(x - xExpected) < 1e-10).all())
 
 # ガンマ関数。階乗の一般化（Γ(n+1) = n!）
 def Gamma(x):
