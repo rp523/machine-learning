@@ -69,13 +69,7 @@ class CAdaBoost:
                 self.__featureLen = self.__featureLen + detector.GetFeatureLength()
         return self.__featureLen
 
-    class Reliability:
-        def __init__(self,reliability):
-            self.__reliability = reliability
-        def calc(self,bin):
-            return self.__reliability[bin]
-
-    def Boost(self, trainScoreMat, labelList):
+    def Boost(self, trainScoreMat, labelList, evalScoreMat = None, evalLabel = None):
 
         assert(isinstance(trainScoreMat, np.ndarray))
         assert(trainScoreMat.ndim == 2)
@@ -101,7 +95,6 @@ class CAdaBoost:
     
         # 強識別器情報の記録メモリを確保
         boostRelia = np.zeros((adaLoop,self.__bin)).astype(np.float)
-        boostRelia_abs = boostRelia.copy()
         boostOrder = np.zeros(adaLoop).astype(np.int)
 
         if self.__adaType == "RealTree":
@@ -130,10 +123,12 @@ class CAdaBoost:
                 remainNum = np.sum(remains)
                 
                 if remainNum > 0:
-                    for s in range(sampleNum):
-                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia_abs.flatten()[base + trainBinMat[s]]))
-                    sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
-                    sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
+                    
+                    if remainNum < featureNum:
+                        for s in range(sampleNum):
+                            sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]))
+                        sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
+                        sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
 
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
                     histoPos = np.zeros((remainNum, self.__bin))
@@ -147,9 +142,8 @@ class CAdaBoost:
                     selectHistNeg = histoNeg[remainBestID]
                 else:
                     # 2週目以降の補正
-                    selectFeature_abs = boostOrder[w % featureNum]
                     for s in range(sampleNum):
-                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia_abs.flatten()[np.delete(base + trainBinMat[s], selectFeature_abs)]))
+                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[np.delete(base + trainBinMat[s][boostOrder], w % featureNum)]))
                     sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
                     sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
@@ -159,6 +153,7 @@ class CAdaBoost:
                         histoPos[np.arange(featureNum),b] = np.dot((trainBinMat[posIdx].T == b), sampleWeight[posIdx])
                         histoNeg[np.arange(featureNum),b] = np.dot((trainBinMat[negIdx].T == b), sampleWeight[negIdx])
                     # 残っている弱識別器から最優秀のものを選択
+                    selectFeature_abs = boostOrder[w % featureNum]
                     selectHistPos = histoPos[selectFeature_abs]
                     selectHistNeg = histoNeg[selectFeature_abs]
                 
@@ -177,14 +172,17 @@ class CAdaBoost:
                     boostRelia[w] = h
                     selectID_abs = np.arange(featureNum)[remains][remainBestID]
                     boostOrder[w] = selectID_abs
-                    boostRelia_abs[selectID_abs] = h
                     remains[selectID_abs] = False
                 else:
                     boostRelia[np.where(boostOrder == selectFeature_abs)] = h
-                    boostRelia_abs[selectFeature_abs] = h
                 
                 if 1:#(w > 0) and (w % featureNum == 0 ):
-                    print(w, self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum)))
+                    learnLoss = self.__CalcLoss(boostRelia, boostOrder, trainScoreMat, labelList, self.__bin, (featureNum - remainNum))
+                    if isinstance(evalScoreMat, np.ndarray) and isinstance(evalLabel, np.ndarray):
+                        evalLoss = self.__CalcLoss(boostRelia, boostOrder, evalScoreMat, evalLabel, self.__bin, (featureNum - remainNum))
+                        print(w, learnLoss, evalLoss)
+                    else:
+                        print(w, learnLoss)
                 continue
 
         self.__relia = boostRelia
@@ -425,21 +423,24 @@ def main(boostLoop):
                         inLabelList = learnLabel,
                         inDetectorList = detectorList)
 
+    # 学習用の特徴量行列を準備    
     trainScoreMat = np.empty((len(learn), 0))
     for detector in detectorList:
         trainScoreMat = np.append(trainScoreMat,
                                   detector.calc(learn),
                                   axis = 1)
-
-    adaBoost.Boost(trainScoreMat = trainScoreMat,
-                   labelList = learnLabel)
-    
     # 評価用の特徴量行列を準備    
     testScoreMat = np.empty((len(eval), 0))
     for detector in detectorList:
         testScoreMat = np.append(testScoreMat,
                                  detector.calc(eval),
                                  axis = 1)
+
+    adaBoost.Boost(trainScoreMat = trainScoreMat,
+                   labelList = learnLabel,
+                   evalScoreMat=testScoreMat,
+                   evalLabel=evalLabel)
+    
     
     evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
                                   label = evalLabel)
@@ -449,7 +450,7 @@ def main(boostLoop):
 
 if "__main__" == __name__:
     
-    print(main(int(5)))
+    print(main(int(2)))
     exit()
     
     plt.figure()
