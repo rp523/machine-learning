@@ -25,8 +25,8 @@ class CInfluence:
             self.__param = CInfluenceParam()
 
         self.__hessian, \
-        self.__learnMat, \
-        self.__evalMat, \
+        self.__dLdtheta_learn, \
+        self.__dLdtheta_eval, \
         self.__evalLabel, \
         self.__evalScore = self.__Prepare(self.__param)
 
@@ -46,12 +46,13 @@ class CInfluence:
     # 各学習サンプルの重みが増えた場合の評価サンプル(指定済)損失の変動を得る。
     def CalcUpWeighLoss(self, targetID):
         
-        evalTarget = self.__evalMat[targetID].flatten()
+        evalTarget = self.__dLdtheta_eval[targetID].flatten()
         
-        invhes_x_evalLos = - SolveLU(self.__hessian, evalTarget)
+        invhes_x_evalLos = SolveLU(self.__hessian, evalTarget)
         assert(not np.isnan(invhes_x_evalLos).any())
-        assert(invhes_x_evalLos.shape == (self.__evalMat.shape[1],))
-        upWeightLoss = np.dot(self.__learnMat, invhes_x_evalLos)
+        assert(invhes_x_evalLos.shape == (self.__dLdtheta_eval.shape[1],))
+        
+        upWeightLoss = np.dot(self.__dLdtheta_learn, invhes_x_evalLos)
         assert(upWeightLoss.shape == (self.__learnLabel.size,))
         upWeightLoss[self.__learnLabel ==  1] = upWeightLoss[self.__learnLabel ==  1] / np.sum(self.__learnLabel ==  1)
         upWeightLoss[self.__learnLabel == -1] = upWeightLoss[self.__learnLabel == -1] / np.sum(self.__learnLabel == -1)
@@ -61,7 +62,7 @@ class CInfluence:
     def RefineLearningSample(self):
         
         targetID = self.__SelectTarget(param = self.__param,
-                                       mat   = self.__evalMat,
+                                       mat   = self.__dLdtheta_eval,
                                        score = self.__evalScore,
                                        label = self.__evalLabel)
         
@@ -87,7 +88,8 @@ class CInfluence:
             learnWeight = np.exp(- learnLabel * learnScore)
             learnWeight[learnLabel ==  1] = learnWeight[learnLabel ==  1] / np.sum(learnLabel ==  1)
             learnWeight[learnLabel == -1] = learnWeight[learnLabel == -1] / np.sum(learnLabel == -1)
-
+            
+            assert(learnScore.ndim == 1)
             assert(learnFtrMat.shape[0] == learnScore.size)
             assert((learnFtrMat >= 0.0).all())
             assert((learnFtrMat <= 1.0).all())
@@ -123,7 +125,7 @@ class CInfluence:
 
             # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
             # 強制的に正定値化する
-            hessian = hessian + 0.001 * np.eye(hessian.shape[0])
+            hessian = hessian + 0.0001 * np.eye(hessian.shape[0])
             assert(not np.isnan(hessian).any())
             assert((hessian == hessian.T).all())    # 転置対称性を確認
             
@@ -142,8 +144,8 @@ class CInfluence:
             evalLabel = adaBoost.Load(type = "evalLabel")
 
             evalWeight = np.exp(- evalLabel * evalScore)
-            evalWeight[evalLabel ==  1] = evalWeight[evalLabel ==  1] / np.sum(learnLabel ==  1)
-            evalWeight[evalLabel == -1] = evalWeight[evalLabel == -1] / np.sum(learnLabel == -1)
+            evalWeight[evalLabel ==  1] = evalWeight[evalLabel ==  1] / np.sum(evalLabel ==  1)
+            evalWeight[evalLabel == -1] = evalWeight[evalLabel == -1] / np.sum(evalLabel == -1)
 
             evalSample = evalFtrMat.shape[0]
 
@@ -227,7 +229,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 100
+    skip = 10
     tgt = 0
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
@@ -264,6 +266,7 @@ def calcError():
         n += 1
     print(real)
     plt.plot(upLossVec[skippedIdx], real - refLoss, ".")
+    plt.grid(True)
     plt.show()
     
 if "__main__" == __name__:

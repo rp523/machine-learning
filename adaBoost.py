@@ -164,9 +164,17 @@ class CAdaBoost:
                                     /(selectHistNeg + self.__regularize + epsilon))
                 else:
                     alpha = 0.4
-                    expPos = np.power(selectHistPos, alpha) + self.__regularize
-                    expNeg = np.power(selectHistNeg, alpha) + self.__regularize
+                    expPos = (selectHistPos ** alpha) + self.__regularize
+                    expNeg = (selectHistNeg ** alpha) + self.__regularize
                     h = ( expPos - expNeg) / (expPos + expNeg)
+                
+                # スムージング
+                smoother = np.zeros((h.size, h.size)).astype(np.float)
+                ran = 1
+                for i in range(h.size):
+                    smoother[i][max(i-ran,0):min(i+ran+1,h.size)] = (np.append(np.arange(ran+1), np.arange(ran)[::-1]) + 1)[max(ran-i,0):ran+1+min(h.size - (i+1),ran)]
+                    smoother[i] = smoother[i] / np.sum(smoother[i])
+                h = np.dot(smoother, h)
                 
                 if remainNum > 0:
                     boostRelia[w] = h
@@ -412,7 +420,7 @@ def main(boostLoop):
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = False
-    adaBoostParam["verbose"] = False
+    adaBoostParam["verbose"] = True
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 9999999
     adaBoostParam["BoostLoop"] = boostLoop
