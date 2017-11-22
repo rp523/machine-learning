@@ -43,19 +43,18 @@ class CInfluence:
                 targetID = np.where(score == targetScore)
         return targetID
     
+    def CalcUpWeightParam(self):
+        upWeightParam = np.dot(self.__dLdtheta_learn, np.linalg.inv(self.__hessian))
+        assert(1E-10 > np.max(np.abs(np.linalg.inv(self.__hessian) - np.linalg.inv(self.__hessian).T)))
+        assert(upWeightParam.shape == self.__dLdtheta_learn.shape)
+        return upWeightParam
+
     # 各学習サンプルの重みが増えた場合の評価サンプル(指定済)損失の変動を得る。
     def CalcUpWeighLoss(self, targetID):
         
+        upWeightParam = self.CalcUpWeightParam()
         evalTarget = self.__dLdtheta_eval[targetID].flatten()
-        
-        invhes_x_evalLos = SolveLU(self.__hessian, evalTarget)
-        assert(not np.isnan(invhes_x_evalLos).any())
-        assert(invhes_x_evalLos.shape == (self.__dLdtheta_eval.shape[1],))
-        
-        upWeightLoss = np.dot(self.__dLdtheta_learn, invhes_x_evalLos)
-        assert(upWeightLoss.shape == (self.__learnLabel.size,))
-        upWeightLoss[self.__learnLabel ==  1] = upWeightLoss[self.__learnLabel ==  1] / np.sum(self.__learnLabel ==  1)
-        upWeightLoss[self.__learnLabel == -1] = upWeightLoss[self.__learnLabel == -1] / np.sum(self.__learnLabel == -1)
+        upWeightLoss = np.dot(upWeightParam, evalTarget)
         
         return upWeightLoss
         
@@ -190,7 +189,7 @@ def smallSampleTry(remLearnIdx,
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = save
-    adaBoostParam["Saturate"] = False
+    adaBoostParam["Saturate"] = True
     adaBoostParam["Regularizer"] = 0.0
     adaBoostParam["BoostLoop"] = 1
         
@@ -220,6 +219,7 @@ def smallSampleTry(remLearnIdx,
                                   label = evalLabel)
     loss = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]) / np.sum(evalLabel == evalLabel[tgtIdx])
     print(evalLabel[tgtIdx], evalScore[tgtIdx], loss)
+
     return loss
 
 def calcError():
@@ -229,7 +229,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 10
+    skip = 100
     tgt = 0
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
@@ -239,6 +239,7 @@ def calcError():
     en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
+
     refLoss = smallSampleTry(remLearnIdx = None, 
                              tgtIdx = tgt, 
                              save = True,
@@ -264,6 +265,7 @@ def calcError():
                                   eval = eval,
                                   evalLabel = evalLabel)
         n += 1
+
     print(real)
     plt.plot(upLossVec[skippedIdx], real - refLoss, ".")
     plt.grid(True)
