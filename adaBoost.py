@@ -36,7 +36,7 @@ class CAdaBoost:
     def __init__(self):
         pass
     
-    def SetParam(self, inImgList,inLabelList,inDetectorList, inAdaBoostParam = None,):
+    def SetParam(self, inAdaBoostParam = None):
         
         if None != inAdaBoostParam:
             adaBoostParam = inAdaBoostParam
@@ -54,12 +54,7 @@ class CAdaBoost:
         self.__regDataDist = adaBoostParam["regDataDist"]
         self.__verbose = adaBoostParam["verbose"]
         self.__saveDetail = adaBoostParam["saveDetail"]
-        self.__detectorList = inDetectorList
-        self.__imgList = inImgList
-        self.__labelList = np.array(inLabelList)
         self.__featureLen = None
-        
-        self.__thresh = np.zeros(len(inDetectorList),float)
         
     def __GetFeatureLength(self):
         if None == self.__featureLen:
@@ -202,6 +197,12 @@ class CAdaBoost:
                                 boostOrder,
                                 trainScoreMat,
                                 labelList)
+        
+        return self.__CalcScore(boostRelia = boostRelia,
+                                            boostOrder = boostOrder,
+                                            scoreMat = trainScoreMat,
+                                            label = labelList,
+                                            bin = self.__bin)
 
     def Evaluate(self, testScoreMat, label):
         
@@ -430,10 +431,7 @@ def main(boostLoop):
     adaBoostParam["BoostLoop"] = boostLoop
     
     adaBoost = CAdaBoost()
-    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
-                        inImgList = learn,
-                        inLabelList = learnLabel,
-                        inDetectorList = detectorList)
+    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam)
 
     # 学習用の特徴量行列を準備    
     trainScoreMat = np.empty((len(learn), 0))
