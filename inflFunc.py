@@ -14,6 +14,7 @@ class CInfluenceParam(CParam):
         setDicts["learner"] = selparam("RealAdaBoost")
         setDicts["evalTarget"] = selparam("largeNeg", "smallPos")
         setDicts["removeMax"] = 1
+        setDicts["damping"] = 0.01
         super().__init__(setDicts)
 
 class CInfluence:
@@ -123,7 +124,7 @@ class CInfluence:
 
             # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
             # 強制的に正定値化する
-            hessian = hessian + 0.01 * np.eye(hessian.shape[0])
+            hessian = hessian + self.__param["damping"] * np.eye(hessian.shape[0])
             assert(not np.isnan(hessian).any())
             assert((hessian == hessian.T).all())    # 転置対称性を確認
             
@@ -176,8 +177,8 @@ def smallSampleTry(remLearnIdx,
         learnLabel = learnLabel[remainIdx]
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 1
+    hogParam["Cell"]["Y"] = 2
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -188,7 +189,7 @@ def smallSampleTry(remLearnIdx,
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = save
-    adaBoostParam["Saturate"] = True
+    adaBoostParam["Saturate"] = False
     adaBoostParam["Regularizer"] = 0.0
     adaBoostParam["BoostLoop"] = 1
         
@@ -234,7 +235,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 100
+    skip = 300
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
@@ -259,7 +260,15 @@ def calcError():
     influence = CInfluence(inParam = param)
     upLossVec = influence.CalcUpWeighLoss(targetID = tgt)
     
+    
     skippedIdx = np.arange(upLossVec.size)[::skip]
+    
+    # ポジネガそれぞれで最も悪影響を与えてる学習サンプルを必ず評価に入れる
+    upLossArgSort = np.argsort(upLossVec)
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][-1])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][-1])
+    skippedIdx = np.unique(skippedIdx)
+    
     real = np.arange(skippedIdx.size).astype(np.float)
 
     n = 0
