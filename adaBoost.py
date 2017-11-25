@@ -36,7 +36,7 @@ class CAdaBoost:
     def __init__(self):
         pass
     
-    def SetParam(self, inImgList,inLabelList,inDetectorList, inAdaBoostParam = None,):
+    def SetParam(self, inAdaBoostParam = None):
         
         if None != inAdaBoostParam:
             adaBoostParam = inAdaBoostParam
@@ -54,12 +54,7 @@ class CAdaBoost:
         self.__regDataDist = adaBoostParam["regDataDist"]
         self.__verbose = adaBoostParam["verbose"]
         self.__saveDetail = adaBoostParam["saveDetail"]
-        self.__detectorList = inDetectorList
-        self.__imgList = inImgList
-        self.__labelList = np.array(inLabelList)
         self.__featureLen = None
-        
-        self.__thresh = np.zeros(len(inDetectorList),float)
         
     def __GetFeatureLength(self):
         if None == self.__featureLen:
@@ -169,7 +164,7 @@ class CAdaBoost:
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
                 # スムージング
-                if 1:
+                if 0:
                     smoother = np.zeros((h.size, h.size)).astype(np.float)
                     ran = 1
                     for i in range(h.size):
@@ -202,6 +197,12 @@ class CAdaBoost:
                                 boostOrder,
                                 trainScoreMat,
                                 labelList)
+        
+        return self.__CalcScore(boostRelia = boostRelia,
+                                            boostOrder = boostOrder,
+                                            scoreMat = trainScoreMat,
+                                            label = labelList,
+                                            bin = self.__bin)
 
     def Evaluate(self, testScoreMat, label):
         
@@ -392,7 +393,10 @@ class CAdaBoost:
             return np.array(out).T
         elif type == "evalLabel":
             return np.array(pd.read_excel(detailPath, sheetname = "eval")["label"])
-        
+    
+    def GetLearnedParam(self):
+        return self.__reliaID, self.__relia
+    
 def main(boostLoop):
 
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
@@ -427,10 +431,7 @@ def main(boostLoop):
     adaBoostParam["BoostLoop"] = boostLoop
     
     adaBoost = CAdaBoost()
-    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
-                        inImgList = learn,
-                        inLabelList = learnLabel,
-                        inDetectorList = detectorList)
+    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam)
 
     # 学習用の特徴量行列を準備    
     trainScoreMat = np.empty((len(learn), 0))

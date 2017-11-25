@@ -8,27 +8,40 @@ from matplotlib import pyplot as plt
 from common.mathtool import *
 
 
+
 class CInfluenceParam(CParam):
     def __init__(self):
         setDicts = dicts()
         setDicts["learner"] = selparam("RealAdaBoost")
         setDicts["evalTarget"] = selparam("largeNeg", "smallPos")
         setDicts["removeMax"] = 1
+        setDicts["damping"] = 0.01
         super().__init__(setDicts)
 
 class CInfluence:
-    def __init__(self, inParam = None):
-        assert(isinstance(inParam, CInfluenceParam))
-        if None != inParam:
-            self.__param = inParam
-        else:
-            self.__param = CInfluenceParam()
-
+    def __init__(self, inflParam, learnedParam, optLearnedParam, 
+                 learnFtrMat, learnScore, learnLabel,
+                 evalFtrMat, evalScore, evalLabel):
+        assert(isinstance(inflParam, CInfluenceParam))
+        self.__param = inflParam
+        self.__learnFtrMat = learnFtrMat
+        self.__learnLabel = learnLabel
+        self.__learnScore = learnScore
+        self.__evalFtrMat = evalFtrMat
+        self.__evalLabel = evalLabel
+        self.__evalScore = evalScore
+        
         self.__hessian, \
         self.__dLdtheta_learn, \
-        self.__dLdtheta_eval, \
-        self.__evalLabel, \
-        self.__evalScore = self.__Prepare(self.__param)
+        self.__dLdtheta_eval = self.__Prepare(param = self.__param,
+                                          learnedParam = learnedParam,
+                                          optLearnedParam = optLearnedParam,
+                                          learnFtrMat = learnFtrMat,
+                                          learnScore = learnScore,
+                                          learnLabel = learnLabel,
+                                          evalFtrMat = evalFtrMat,
+                                          evalScore = evalScore,
+                                          evalLabel = evalLabel)
 
     # スコア低減対称の評価サンプルを選び、そのIDを返す    
     def __SelectTarget(self, param, mat, score, label):
@@ -45,7 +58,6 @@ class CInfluence:
     
     def CalcUpWeightParam(self):
         upWeightParam = np.dot(self.__dLdtheta_learn, np.linalg.inv(self.__hessian))
-        assert(1E-10 > np.max(np.abs(np.linalg.inv(self.__hessian) - np.linalg.inv(self.__hessian).T)))
         assert(upWeightParam.shape == self.__dLdtheta_learn.shape)
         return upWeightParam
 
@@ -74,16 +86,11 @@ class CInfluence:
         
         return remainIdx, removeIdx, targetID
     
-    def __Prepare(self, param):
+    def __Prepare(self, param, learnedParam, optLearnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel):
+        
         if param["learner"]["RealAdaBoost"]:
             adaBoost = CAdaBoost()
 
-            learnFtrMat = adaBoost.Load(type = "learnFeature")
-            relia = adaBoost.Load(type = "reliability")
-            id = adaBoost.Load(type = "boostOrder")
-            learnScore = adaBoost.Load(type = "learnScore")
-            learnLabel = adaBoost.Load(type = "learnLabel")
-            
             learnWeight = np.exp(- learnLabel * learnScore)
             learnWeight[learnLabel ==  1] = learnWeight[learnLabel ==  1] / np.sum(learnLabel ==  1)
             learnWeight[learnLabel == -1] = learnWeight[learnLabel == -1] / np.sum(learnLabel == -1)
@@ -95,8 +102,8 @@ class CInfluence:
             assert(learnWeight.ndim == 1)
             
             learnSample = learnFtrMat.shape[0]
-            featureNum = relia.shape[0]
-            adaBin = relia.shape[1]
+            featureNum = learnFtrMat.shape[1]
+            adaBin = learnedParam.shape[1]
             thetaN = featureNum * adaBin
             
             # スコアをAdaBoostのBinで量子化
@@ -105,13 +112,6 @@ class CInfluence:
             
             base = np.arange(featureNum) * adaBin
             
-            print("making learnVec...")
-            learnDiffL = np.empty((learnSample, thetaN))
-            for s in tqdm(range(learnSample)):
-                oneLine = np.zeros(thetaN)
-                oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
-                learnDiffL[s] = oneLine
-
             print("making hessian...")
             hessian = np.zeros((thetaN * thetaN))
             dim = learnBinMat.shape[1]
@@ -122,26 +122,36 @@ class CInfluence:
                 hessian[idxVec] = hessian[idxVec] + learnWeight[s]
             hessian = hessian.reshape(thetaN, thetaN)
 
-            # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
-            # 強制的に正定値化する
-            hessian = hessian + 0.0001 * np.eye(hessian.shape[0])
-            assert(not np.isnan(hessian).any())
-            assert((hessian == hessian.T).all())    # 転置対称性を確認
+            # damping
+            dampHessian = hessian + self.__param["damping"] * np.eye(hessian.shape[0])
+            assert(not np.isnan(dampHessian).any())
+            assert((dampHessian == dampHessian.T).all())    # 転置対称性を確認
             
             if 1:   # 正定値性(全固有値が正)を確認。かなり重い
-                eigen, _ = GetEigen(hessian)
+                eigen, _ = GetEigen(dampHessian)
                 assert((eigen > 0.0).all())
-        
-            # for debug
-            #plt.imshow(hessian, cmap='hot', interpolation='nearest')
-            #plt.show()
-            #exit()
+            print("making learnVec...")
+ 
+            if None != optLearnedParam:
+                assert(optLearnedParam.shape == learnedParam.shape)
+                opt = optLearnedParam
+            else:
+                opt = learnedParam
             
-            print("making evalVec...")
-            evalFtrMat = adaBoost.Load(type = "evalFeature")
-            evalScore = adaBoost.Load(type = "evalScore")
-            evalLabel = adaBoost.Load(type = "evalLabel")
+            learnDiffL = np.empty((learnSample, thetaN))
+            for s in tqdm(range(learnSample)):
+                oneLine = np.zeros(thetaN)
+                oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
+                learnDiffL[s] = oneLine
+            # damping
+            dampDiffL = np.dot(dampHessian,(opt - learnedParam).flatten())
+            assert(dampDiffL.shape == (learnDiffL.shape[1],))
+            dampDiffLMat = np.empty(learnDiffL.shape)
+            dampDiffLMat[np.arange(dampDiffLMat.shape[0])] = dampDiffL
+            assert(dampDiffLMat.shape == learnDiffL.shape)
+            dampLearnDiffL = learnDiffL + dampDiffLMat
 
+            print("making evalVec...")
             evalWeight = np.exp(- evalLabel * evalScore)
             evalWeight[evalLabel ==  1] = evalWeight[evalLabel ==  1] / np.sum(evalLabel ==  1)
             evalWeight[evalLabel == -1] = evalWeight[evalLabel == -1] / np.sum(evalLabel == -1)
@@ -156,71 +166,51 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + evalBinMat[s]] = evalWeight[s] * (- evalLabel[s])
                 evalDiffL[s] = oneLine
+            dampDiffL = np.dot(dampHessian,(opt - learnedParam).flatten())
+            assert(dampDiffL.shape == (evalDiffL.shape[1],))
+            dampDiffLMat = np.empty(evalDiffL.shape)
+            dampDiffLMat[np.arange(dampDiffLMat.shape[0])] = dampDiffL
+            assert(dampDiffLMat.shape == evalDiffL.shape)
+            dampEvalDiffL = evalDiffL + dampDiffLMat
             
-            self.__learnLabel = learnLabel
-            self.__evalLabel  = evalLabel
-            return hessian, learnDiffL, evalDiffL, evalLabel, evalScore
-
+            return dampHessian, dampLearnDiffL, dampEvalDiffL
+        
 from adaBoost import *
 from feature.hog import *
-def smallSampleTry(remLearnIdx, 
-                   tgtIdx, 
-                   save, 
-                   learn, 
+def smallSampleTry(learnFtrMat, 
                    learnLabel, 
-                   eval,
-                   evalLabel):
-    if remLearnIdx:
-        remainIdx = np.ones(len(learn)).astype(np.bool)
-        remainIdx[remLearnIdx] = False
-        learn = learn[remainIdx]
-        learnLabel = learnLabel[remainIdx]
-    hogParam = CHogParam()
-    hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
-    hogParam["Block"]["X"] = 1
-    hogParam["Block"]["Y"] = 1
-    detectorList = [CHog(hogParam)]
+                   evalFtrMat,
+                   evalLabel,
+                   opt):
 
     adaBoostParam = AdaBoostParam()
     adaBoostParam["Regularizer"] = 0.0#1e-5
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = save
-    adaBoostParam["Saturate"] = True
+    adaBoostParam["saveDetail"] = False
+    adaBoostParam["Saturate"] = False
     adaBoostParam["Regularizer"] = 0.0
-    adaBoostParam["BoostLoop"] = 1
+    if opt:
+        adaBoostParam["BoostLoop"] = 1
+    else:
+        adaBoostParam["BoostLoop"] = 1
         
     adaBoost = CAdaBoost()
-    adaBoost.SetParam(  inAdaBoostParam = adaBoostParam,
-                        inImgList = learn,
-                        inLabelList = learnLabel,
-                        inDetectorList = detectorList)
+    adaBoost.SetParam(inAdaBoostParam = adaBoostParam)
 
-    trainScoreMat = np.empty((len(learn), 0))
-    for detector in detectorList:
-        trainScoreMat = np.append(trainScoreMat,
-                                  detector.calc(learn),
-                                  axis = 1)
-
-    adaBoost.Boost(trainScoreMat = trainScoreMat,
+    learnScore = adaBoost.Boost(trainScoreMat = learnFtrMat,
                    labelList = learnLabel)
     
-    # 評価用の特徴量行列を準備    
-    testScoreMat = np.empty((len(eval), 0))
-    for detector in detectorList:
-        testScoreMat = np.append(testScoreMat,
-                                 detector.calc(eval),
-                                 axis = 1)
-    
-    evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
+    evalScore = adaBoost.Evaluate(testScoreMat = evalFtrMat,
                                   label = evalLabel)
-    loss = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]) / np.sum(evalLabel == evalLabel[tgtIdx])
-    print(evalLabel[tgtIdx], evalScore[tgtIdx], loss)
+    evalLossVec = np.exp(-evalLabel * evalScore)
+    evalLossVec[evalLabel ==  1] = evalLossVec[evalLabel ==  1] / np.sum(evalLabel ==  1)
+    evalLossVec[evalLabel == -1] = evalLossVec[evalLabel == -1] / np.sum(evalLabel == -1)
+    
+    boostOrder, adaTable = adaBoost.GetLearnedParam()
 
-    return loss
+    return adaTable[np.argsort(boostOrder)], learnScore, evalScore, evalLossVec
 
 def calcError():
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
@@ -230,44 +220,83 @@ def calcError():
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
     skip = 100
-    tgt = 0
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
-    learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
+    learnImg = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )[:99]
     en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
-    eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
-    evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
+    evalImg = RGB2Gray(np.append(ep, en, axis = 0), "green")
+    evalLabel = np.array([1] * len(ep) + [-1] * len(en))
 
-    refLoss = smallSampleTry(remLearnIdx = None, 
-                             tgtIdx = tgt, 
-                             save = True,
-                             learn = learn,
-                             learnLabel = learnLabel,
-                             eval = eval,
-                             evalLabel = evalLabel)
+    hogParam = CHogParam()
+    hogParam["Bin"] = 8
+    hogParam["Cell"]["X"] = 1
+    hogParam["Cell"]["Y"] = 2
+    hogParam["Block"]["X"] = 1
+    hogParam["Block"]["Y"] = 1
+    detectorList = [CHog(hogParam)]
+
+    learnFtrMat = np.empty((learnImg.shape[0], 0))
+    for detector in detectorList:
+        learnFtrMat = np.append(learnFtrMat,
+                                  detector.calc(learnImg),
+                                  axis = 1)
+    evalFtrMat = np.empty((evalImg.shape[0], 0))
+    for detector in detectorList:
+        evalFtrMat = np.append(evalFtrMat,
+                                 detector.calc(evalImg),
+                                 axis = 1)
+
+    optAdaTable, _1, _2, _3 = smallSampleTry(learnFtrMat = learnFtrMat,
+                                                           learnLabel = learnLabel,
+                                                           evalFtrMat = evalFtrMat,
+                                                           evalLabel = evalLabel,
+                                                           opt = True)
+    refAdaTable, learnScore, evalScore, evalLossVec = smallSampleTry(learnFtrMat = learnFtrMat,
+                                                                                              learnLabel = learnLabel,
+                                                                                              evalFtrMat = evalFtrMat,
+                                                                                              evalLabel = evalLabel,
+                                                                                              opt = None)
+
+    evalTgtIdx = np.argsort(evalLossVec)[-1]
+    refEvalLoss = evalLossVec[evalTgtIdx]
+    
     param = CInfluenceParam()
-    influence = CInfluence(inParam = param)
-    upLossVec = influence.CalcUpWeighLoss(targetID = tgt)
+    influence = CInfluence(inflParam = CInfluenceParam(),
+                           learnedParam = refAdaTable,
+                           optLearnedParam = optAdaTable,
+                           learnFtrMat = learnFtrMat,
+                           learnScore = learnScore,
+                           learnLabel = learnLabel,
+                           evalFtrMat = evalFtrMat,
+                           evalScore = evalScore,
+                           evalLabel = evalLabel)
+    upLossVec = influence.CalcUpWeighLoss(targetID = evalTgtIdx)
+    
     
     skippedIdx = np.arange(upLossVec.size)[::skip]
-    real = np.arange(skippedIdx.size).astype(np.float)
-
+    
+    # ポジネガそれぞれで最も悪影響を与えてる学習サンプルを必ず評価に入れる
+    upLossArgSort = np.argsort(upLossVec)
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][-1])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][-1])
+    skippedIdx = np.unique(skippedIdx)
+    
+    relearnLoss = np.empty(skippedIdx.size).astype(np.float)
     n = 0
-    for i in skippedIdx:
-        print("realvalue:", i)
-        real[n] = smallSampleTry(remLearnIdx = i,
-                                  tgtIdx = tgt, 
-                                  save = False,
-                                  learn = learn,
-                                  learnLabel = learnLabel,
-                                  eval = eval,
-                                  evalLabel = evalLabel)
+    print("re-training")
+    for i in tqdm(skippedIdx):
+        _1, _2, _3, evalLossVec = smallSampleTry(learnFtrMat = np.delete(learnFtrMat, i, axis = 0),
+                                                 learnLabel = np.delete(learnLabel, i),
+                                                 evalFtrMat = evalFtrMat,
+                                                 evalLabel = evalLabel,
+                                                 opt = None)
+        relearnLoss[n] = evalLossVec[evalTgtIdx]
         n += 1
 
-    print(real)
-    plt.plot(upLossVec[skippedIdx], real - refLoss, ".")
+    print(relearnLoss)
+    plt.plot(upLossVec[skippedIdx], relearnLoss - refEvalLoss, ".")
     plt.grid(True)
     plt.show()
     
