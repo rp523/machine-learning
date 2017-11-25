@@ -392,7 +392,10 @@ class CAdaBoost:
             return np.array(out).T
         elif type == "evalLabel":
             return np.array(pd.read_excel(detailPath, sheetname = "eval")["label"])
-        
+    
+    def GetLearnedParam(self):
+        return ,self.__reliaID, self.__relia = boostRelia
+
 def main(boostLoop):
 
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
