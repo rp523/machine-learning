@@ -43,19 +43,17 @@ class CInfluence:
                 targetID = np.where(score == targetScore)
         return targetID
     
+    def CalcUpWeightParam(self):
+        upWeightParam = np.dot(self.__dLdtheta_learn, np.linalg.inv(self.__hessian))
+        assert(upWeightParam.shape == self.__dLdtheta_learn.shape)
+        return upWeightParam
+
     # 各学習サンプルの重みが増えた場合の評価サンプル(指定済)損失の変動を得る。
     def CalcUpWeighLoss(self, targetID):
         
+        upWeightParam = self.CalcUpWeightParam()
         evalTarget = self.__dLdtheta_eval[targetID].flatten()
-        
-        invhes_x_evalLos = SolveLU(self.__hessian, evalTarget)
-        assert(not np.isnan(invhes_x_evalLos).any())
-        assert(invhes_x_evalLos.shape == (self.__dLdtheta_eval.shape[1],))
-        
-        upWeightLoss = np.dot(self.__dLdtheta_learn, invhes_x_evalLos)
-        assert(upWeightLoss.shape == (self.__learnLabel.size,))
-        upWeightLoss[self.__learnLabel ==  1] = upWeightLoss[self.__learnLabel ==  1] / np.sum(self.__learnLabel ==  1)
-        upWeightLoss[self.__learnLabel == -1] = upWeightLoss[self.__learnLabel == -1] / np.sum(self.__learnLabel == -1)
+        upWeightLoss = np.dot(upWeightParam, evalTarget)
         
         return upWeightLoss
         
@@ -125,7 +123,7 @@ class CInfluence:
 
             # 対角成分に小さい値を足すことにより、損失関数の大域解になっていない場合も
             # 強制的に正定値化する
-            hessian = hessian + 0.0001 * np.eye(hessian.shape[0])
+            hessian = hessian + 0.01 * np.eye(hessian.shape[0])
             assert(not np.isnan(hessian).any())
             assert((hessian == hessian.T).all())    # 転置対称性を確認
             
@@ -165,12 +163,12 @@ class CInfluence:
 from adaBoost import *
 from feature.hog import *
 def smallSampleTry(remLearnIdx, 
-                   tgtIdx, 
                    save, 
                    learn, 
                    learnLabel, 
                    eval,
-                   evalLabel):
+                   evalLabel,
+                   tgtIdx = None):
     if remLearnIdx:
         remainIdx = np.ones(len(learn)).astype(np.bool)
         remainIdx[remLearnIdx] = False
@@ -190,7 +188,7 @@ def smallSampleTry(remLearnIdx,
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = save
-    adaBoostParam["Saturate"] = False
+    adaBoostParam["Saturate"] = True
     adaBoostParam["Regularizer"] = 0.0
     adaBoostParam["BoostLoop"] = 1
         
@@ -218,9 +216,16 @@ def smallSampleTry(remLearnIdx,
     
     evalScore = adaBoost.Evaluate(testScoreMat = testScoreMat,
                                   label = evalLabel)
-    loss = np.exp(-evalLabel[tgtIdx] * evalScore[tgtIdx]) / np.sum(evalLabel == evalLabel[tgtIdx])
-    print(evalLabel[tgtIdx], evalScore[tgtIdx], loss)
-    return loss
+    lossVec = np.exp(-evalLabel * evalScore)
+    lossVec[evalLabel ==  1] = lossVec[evalLabel ==  1] / np.sum(evalLabel ==  1)
+    lossVec[evalLabel == -1] = lossVec[evalLabel == -1] / np.sum(evalLabel == -1)
+
+    if tgtIdx:
+        loss = lossVec[tgtIdx]
+        print(evalLabel[tgtIdx], loss)
+        return loss
+    else:
+        return lossVec
 
 def calcError():
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
@@ -229,8 +234,7 @@ def calcError():
         os.remove(matFile)
     for csvFile in  GetFileList(".", includingText = ".csv"):
         os.remove(csvFile)
-    skip = 10
-    tgt = 0
+    skip = 100
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
@@ -239,13 +243,18 @@ def calcError():
     en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )[:98]
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
-    refLoss = smallSampleTry(remLearnIdx = None, 
-                             tgtIdx = tgt, 
+
+    lossList = smallSampleTry(remLearnIdx = None, 
+                             tgtIdx = None, 
                              save = True,
                              learn = learn,
                              learnLabel = learnLabel,
                              eval = eval,
                              evalLabel = evalLabel)
+    
+    tgt = np.argsort(lossList)[-1]
+    refLoss = lossList[tgt]
+    
     param = CInfluenceParam()
     influence = CInfluence(inParam = param)
     upLossVec = influence.CalcUpWeighLoss(targetID = tgt)
@@ -264,6 +273,7 @@ def calcError():
                                   eval = eval,
                                   evalLabel = evalLabel)
         n += 1
+
     print(real)
     plt.plot(upLossVec[skippedIdx], real - refLoss, ".")
     plt.grid(True)
