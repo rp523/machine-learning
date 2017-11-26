@@ -164,7 +164,7 @@ class CAdaBoost:
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
                 # スムージング
-                if 0:
+                if 1:
                     smoother = np.zeros((h.size, h.size)).astype(np.float)
                     ran = 1
                     for i in range(h.size):
