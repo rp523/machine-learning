@@ -294,8 +294,16 @@ def calcError():
         n += 1
 
     print(relearnLoss)
-    plt.plot(upLossVec[skippedIdx], relearnLoss - refEvalLoss, ".")
-    plt.grid(True)
+    x = relearnLoss - refEvalLoss
+    y1 = upLossVec[skippedIdx]
+    y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx] ** 2), axis = 1))
+    fig = plt.figure()
+    ax1 = fig.add_subplot(121)
+    ax1.plot(x, y1, ".")
+    ax1.grid(True)
+    ax2 = fig.add_subplot(122)
+    ax2.plot(x, y2, ".")
+    ax2.grid(True)
     plt.show()
     
 if "__main__" == __name__:
