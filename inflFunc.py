@@ -15,13 +15,13 @@ class CInfluenceParam(CParam):
         setDicts["learner"] = selparam("RealAdaBoost")
         setDicts["evalTarget"] = selparam("largeNeg", "smallPos")
         setDicts["removeMax"] = 1
-        setDicts["damping"] = 1E-4
         super().__init__(setDicts)
 
 class CInfluence:
     def __init__(self, inflParam, hyperParam, learnedParam, optLearnedParam, 
                  learnFtrMat, learnScore, learnLabel,
-                 evalFtrMat, evalScore, evalLabel):
+                 evalFtrMat, evalScore, evalLabel,
+                 damping = None):
         assert(isinstance(inflParam, CInfluenceParam))
         
         self.__hessian, \
@@ -35,7 +35,8 @@ class CInfluence:
                                               learnLabel = learnLabel,
                                               evalFtrMat = evalFtrMat,
                                               evalScore = evalScore,
-                                              evalLabel = evalLabel)
+                                              evalLabel = evalLabel,
+                                              damping = damping)
 
     # スコア低減対称の評価サンプルを選び、そのIDを返す    
     def __SelectTarget(self, param, mat, score, label):
@@ -80,7 +81,7 @@ class CInfluence:
         
         return remainIdx, removeIdx, targetID
     
-    def __Prepare(self, param, hyperParam, learnedParam, optLearnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel):
+    def __Prepare(self, param, hyperParam, learnedParam, optLearnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel, damping):
         
         if param["learner"]["RealAdaBoost"]:
             adaBoost = CAdaBoost()
@@ -118,7 +119,7 @@ class CInfluence:
             hessian = hessian + np.diag(hyperParam["Regularizer"] * 2.0 * np.cosh(learnedParam.flatten()))
 
             # damping
-            dampHessian = hessian + param["damping"] * np.eye(hessian.shape[0])
+            dampHessian = hessian + damping * np.eye(hessian.shape[0])
             assert(not np.isnan(dampHessian).any())
             assert((dampHessian == dampHessian.T).all())    # 転置対称性を確認
             
@@ -217,8 +218,8 @@ def calcError():
 
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 1
+    hogParam["Cell"]["Y"] = 2
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -269,10 +270,11 @@ def calcError():
                            learnLabel = learnLabel,
                            evalFtrMat = evalFtrMat,
                            evalScore = evalScore,
-                           evalLabel = evalLabel)
+                           evalLabel = evalLabel,
+                           damping = 1E-6)
     upLossVec = influence.CalcUpWeighLoss(targetID = evalTgtIdx)
     
-    skip = 100
+    skip = 1000
     skippedIdx = np.arange(upLossVec.size)[::skip]
     
     # ポジネガそれぞれで最も悪影響を与えてる学習サンプルを必ず評価に入れる
