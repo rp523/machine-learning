@@ -84,22 +84,43 @@ class CInfluence:
     def __Prepare(self, param, hyperParam, learnedParam, optLearnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel, damping):
         
         if param["learner"]["RealAdaBoost"]:
-            adaBoost = CAdaBoost()
+            learnSample = learnFtrMat.shape[0]
+            evalSample = evalFtrMat.shape[0]
+            featureNum = learnFtrMat.shape[1]
+            adaBin = learnedParam.shape[1]
+            thetaN = featureNum * adaBin
 
-            learnWeight = np.exp(- learnLabel * learnScore)
+            adaBoost = CAdaBoost()
+            
+            learnWeight = np.empty(learnSample).astype(np.float)
+            evalWeight  = np.empty(evalSample ).astype(np.float)
+            if hyperParam["Saturate"]:
+                base = np.arange(learnedParam.shape[0]) * adaBin
+                learnedParamVec = learnedParam.flatten()       
+                adaBin = hyperParam["Bin"]
+                c = hyperParam["SaturateLevel"]
+                
+                learnFtrBinMat = (learnFtrMat * adaBin).astype(np.int)
+                learnFtrBinMat = learnFtrBinMat * (learnFtrBinMat < adaBin) + (adaBin) * (learnFtrBinMat >= adaBin)
+                for s in range(learnSample):
+                    learnWeight[s] = np.prod((1.0 - learnLabel[s] * learnedParamVec[base + learnFtrBinMat[s]]) ** (1.0 / c + 1.0))
+                
+                evalFtrBinMat = (evalFtrMat * adaBin).astype(np.int)
+                evalFtrBinMat = evalFtrBinMat * (evalFtrBinMat < adaBin) + (adaBin - 1) * (evalFtrBinMat >= adaBin)
+                for s in range(evalSample):
+                    evalWeight[s] = np.prod((1.0 - evalLabel[s] * learnedParamVec[base + evalFtrBinMat[s]]) ** (1.0 / c + 1.0))
+            else:
+                learnWeight = np.exp(- learnLabel * learnScore)
             learnWeight[learnLabel ==  1] = learnWeight[learnLabel ==  1] / np.sum(learnLabel ==  1)
             learnWeight[learnLabel == -1] = learnWeight[learnLabel == -1] / np.sum(learnLabel == -1)
+            evalWeight[ evalLabel  ==  1] = evalWeight[ evalLabel  ==  1] / np.sum(evalLabel  ==  1)
+            evalWeight[ evalLabel  == -1] = evalWeight[ evalLabel  == -1] / np.sum(evalLabel  == -1)
             
             assert(learnScore.ndim == 1)
             assert(learnFtrMat.shape[0] == learnScore.size)
             assert((learnFtrMat >= 0.0).all())
             assert((learnFtrMat <= 1.0).all())
             assert(learnWeight.ndim == 1)
-            
-            learnSample = learnFtrMat.shape[0]
-            featureNum = learnFtrMat.shape[1]
-            adaBin = learnedParam.shape[1]
-            thetaN = featureNum * adaBin
             
             # スコアをAdaBoostのBinで量子化
             learnBinMat = (learnFtrMat * adaBin).astype(np.int)
@@ -116,7 +137,12 @@ class CInfluence:
                 idxVec = (idxMat + idxMat.T * thetaN).flatten()
                 hessian[idxVec] = hessian[idxVec] + learnWeight[s]
             hessian = hessian.reshape(thetaN, thetaN)
-            hessian = hessian + np.diag(hyperParam["Regularizer"] * 2.0 * np.cosh(learnedParam.flatten()))
+            if hyperParam["Saturate"]:
+                reguPart = (1.0/c + 1.0) * (1.0/c) * ((1.0 - learnedParam.flatten()) ** (1.0 / c - 1.0) + 
+                                                      (1.0 + learnedParam.flatten()) ** (1.0 / c - 1.0))
+            else:
+                reguPart = 2.0 * np.cosh(learnedParam.flatten())
+            hessian = hessian + np.diag(hyperParam["Regularizer"] * reguPart)
 
             # damping
             dampHessian = hessian + damping * np.eye(hessian.shape[0])
@@ -126,8 +152,7 @@ class CInfluence:
             if 1:   # 正定値性(全固有値が正)を確認。かなり重い
                 eigen, _ = GetEigen(dampHessian)
                 assert((eigen > 0.0).all())
-            print("making learnVec...")
- 
+
             if None != optLearnedParam:
                 assert(optLearnedParam.shape == learnedParam.shape)
                 opt = optLearnedParam
@@ -139,7 +164,13 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
                 learnDiffL[s] = oneLine
-            learnDiffL = learnDiffL + hyperParam["Regularizer"] * 2.0 * np.sinh(learnedParam.flatten())
+            if hyperParam["Saturate"]:
+                reguPart = (1.0/c + 1.0) * ((1.0 - learnedParam.flatten()) ** (1.0 / c) + 
+                                            (1.0 + learnedParam.flatten()) ** (1.0 / c))
+            else:
+                reguPart = 2.0 * np.sinh(learnedParam.flatten())
+            learnDiffL = learnDiffL + hyperParam["Regularizer"] * reguPart
+
             # damping
             dampDiffL = np.dot(dampHessian,(opt - learnedParam).flatten())
             assert(dampDiffL.shape == (learnDiffL.shape[1],))
@@ -147,13 +178,6 @@ class CInfluence:
             dampDiffLMat[np.arange(dampDiffLMat.shape[0])] = dampDiffL
             assert(dampDiffLMat.shape == learnDiffL.shape)
             dampLearnDiffL = learnDiffL + dampDiffLMat
-
-            print("making evalVec...")
-            evalWeight = np.exp(- evalLabel * evalScore)
-            evalWeight[evalLabel ==  1] = evalWeight[evalLabel ==  1] / np.sum(evalLabel ==  1)
-            evalWeight[evalLabel == -1] = evalWeight[evalLabel == -1] / np.sum(evalLabel == -1)
-
-            evalSample = evalFtrMat.shape[0]
 
             # スコアをAdaBoostのBinで量子化
             evalBinMat = (evalFtrMat * adaBin).astype(np.int)
@@ -163,7 +187,12 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + evalBinMat[s]] = evalWeight[s] * (- evalLabel[s])
                 evalDiffL[s] = oneLine
-            evalDiffL = evalDiffL + hyperParam["Regularizer"] * 2.0 * np.sinh(learnedParam.flatten())
+            if hyperParam["Saturate"]:
+                reguPart = (1.0/c + 1.0) * ((1.0 - learnedParam.flatten()) ** (1.0 / c) + 
+                                            (1.0 + learnedParam.flatten()) ** (1.0 / c))
+            else:
+                reguPart = 2.0 * np.sinh(learnedParam.flatten())
+            evalDiffL = evalDiffL + hyperParam["Regularizer"] * reguPart
             # damping
             assert(dampDiffL.shape == (evalDiffL.shape[1],))
             dampDiffLMat = np.empty(evalDiffL.shape)
@@ -241,7 +270,7 @@ def calcError():
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = False
-    adaBoostParam["Saturate"] = False
+    adaBoostParam["Saturate"] = True
     adaBoostParam["Regularizer"] = 0.8
     adaBoostParam["BoostLoop"] = 1
     

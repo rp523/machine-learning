@@ -158,7 +158,7 @@ class CAdaBoost:
                     h = 0.5 * np.log((selectHistPos + self.__regularize + epsilon)
                                     /(selectHistNeg + self.__regularize + epsilon))
                 else:
-                    alpha = 0.4
+                    alpha = self.__saturateLevel
                     expPos = (selectHistPos ** alpha) + self.__regularize + epsilon
                     expNeg = (selectHistNeg ** alpha) + self.__regularize + epsilon
                     h = ( expPos - expNeg) / (expPos + expNeg)
