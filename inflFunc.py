@@ -290,11 +290,11 @@ def calcError():
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Saturate"] = False
-    adaBoostParam["Regularizer"] = 0.0
-    adaBoostParam["BoostLoop"] = 4
+    adaBoostParam["Regularizer"] = 1e-2
+    adaBoostParam["BoostLoop"] = 1
     
     adaBoostParam_opt = adaBoostParam.copy()
-    #adaBoostParam_opt["BoostLoop"] = 4
+    adaBoostParam_opt["BoostLoop"] = 8
     #adaBoostParam_opt["Saturate"] = False
     #adaBoostParam_opt["SaturateLoss"] = True
     optAdaTable, _1, _2, _3 = smallSampleTry(hyperParam = adaBoostParam_opt,
@@ -346,16 +346,22 @@ def calcError():
         relearnLoss[n] = evalLossVec[evalTgtIdx]
         n += 1
 
+    print("tgt cls:", evalLabel[evalTgtIdx])
     print(relearnLoss)
+    plotPosIdx = learnLabel[skippedIdx] ==  1
+    plotNegIdx = learnLabel[skippedIdx] == -1
     x = relearnLoss - refEvalLoss
     y1 = upLossVec[skippedIdx]
     y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx] ** 2), axis = 1))
     fig = plt.figure()
     ax1 = fig.add_subplot(121)
-    ax1.plot(x, y1, ".")
+    
+    ax1.plot(x[plotPosIdx], y1[plotPosIdx], ".", color="red")
+    ax1.plot(x[plotNegIdx], y1[plotNegIdx], ".", color="blue")
     ax1.grid(True)
     ax2 = fig.add_subplot(122)
-    ax2.plot(x, y2, ".")
+    ax2.plot(x[plotPosIdx], y2[plotPosIdx], ".", color="red")
+    ax2.plot(x[plotNegIdx], y2[plotNegIdx], ".", color="blue")
     ax2.grid(True)
     plt.show()
     
