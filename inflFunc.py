@@ -140,13 +140,14 @@ class CInfluence:
                 idxVec = (idxMat + idxMat.T * thetaN).flatten()
                 hessian[idxVec] = hessian[idxVec] + learnWeight[s]
             hessian = hessian.reshape(thetaN, thetaN)
+            '''
             if 0:#hyperParam["Saturate"]:
                 reguPart = (1.0/c + 1.0) * (1.0/c) * ((1.0 - learnedParam.flatten()) ** (1.0 / c - 1.0) + 
                                                       (1.0 + learnedParam.flatten()) ** (1.0 / c - 1.0))
             else:
                 reguPart = 2.0 * np.cosh(learnedParam.flatten())
             hessian = hessian + np.diag(hyperParam["Regularizer"] * reguPart)
-
+            '''
             # damping
             if None != damping:
                 dampHessian = hessian + damping * np.eye(hessian.shape[0])
@@ -170,13 +171,14 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + learnBinMat[s]] = learnWeight[s] * (- learnLabel[s])
                 learnDiffL[s] = oneLine
+            '''
             if 0:#hyperParam["Saturate"]:
                 reguPart = (1.0/c + 1.0) * ((1.0 - learnedParam.flatten()) ** (1.0 / c) + 
                                             (1.0 + learnedParam.flatten()) ** (1.0 / c))
             else:
                 reguPart = 1.0 * np.sinh(learnedParam.flatten())
             learnDiffL = learnDiffL + hyperParam["Regularizer"] * reguPart
-
+            
             # damping
             if damping != None:
                 dampDiffL = np.dot(dampHessian,(opt - learnedParam).flatten())
@@ -187,6 +189,8 @@ class CInfluence:
                 dampLearnDiffL = learnDiffL + dampDiffLMat
             else:
                 dampLearnDiffL = learnDiffL
+            '''
+
             # スコアをAdaBoostのBinで量子化
             evalBinMat = (evalFtrMat * adaBin).astype(np.int)
             evalBinMat[evalBinMat >= adaBin] = adaBin - 1
@@ -195,12 +199,14 @@ class CInfluence:
                 oneLine = np.zeros(thetaN)
                 oneLine[base + evalBinMat[s]] = evalWeight[s] * (- evalLabel[s])
                 evalDiffL[s] = oneLine
+            '''
             if 0:#hyperParam["Saturate"]:
                 reguPart = (1.0/c + 1.0) * ((1.0 - learnedParam.flatten()) ** (1.0 / c) + 
                                             (1.0 + learnedParam.flatten()) ** (1.0 / c))
             else:
                 reguPart = 1.0 * np.sinh(learnedParam.flatten())
             evalDiffL = evalDiffL + hyperParam["Regularizer"] * reguPart
+            
             # damping
             if damping != None:
                 assert(dampDiffL.shape == (evalDiffL.shape[1],))
@@ -210,8 +216,9 @@ class CInfluence:
                 dampEvalDiffL = evalDiffL + dampDiffLMat
             else:
                 dampEvalDiffL = evalDiffL
+            '''
             
-            return dampHessian, dampLearnDiffL, dampEvalDiffL
+            return dampHessian, learnDiffL, evalDiffL
         
 from adaBoost import *
 from feature.hog import *
@@ -260,8 +267,8 @@ def calcError():
 
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 1
+    hogParam["Cell"]["Y"] = 2
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -283,12 +290,12 @@ def calcError():
     adaBoostParam["verbose"] = False
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Saturate"] = False
-    adaBoostParam["Regularizer"] = 1e-3
-    adaBoostParam["BoostLoop"] = 32
+    adaBoostParam["Regularizer"] = 0.0
+    adaBoostParam["BoostLoop"] = 4
     
     adaBoostParam_opt = adaBoostParam.copy()
-    adaBoostParam_opt["BoostLoop"] = 32
-    adaBoostParam_opt["Saturate"] = False
+    #adaBoostParam_opt["BoostLoop"] = 4
+    #adaBoostParam_opt["Saturate"] = False
     #adaBoostParam_opt["SaturateLoss"] = True
     optAdaTable, _1, _2, _3 = smallSampleTry(hyperParam = adaBoostParam_opt,
                                              learnFtrMat = learnFtrMat,
@@ -302,7 +309,7 @@ def calcError():
                                                                      evalFtrMat = evalFtrMat,
                                                                      evalLabel = evalLabel)
 
-    evalTgtIdx = 1#np.argsort(evalLossVec)[-1]
+    evalTgtIdx = np.argsort(evalLossVec)[-1]
     refEvalLoss = evalLossVec[evalTgtIdx]
     
     influence = CInfluence(inflParam = CInfluenceParam(),
@@ -315,16 +322,16 @@ def calcError():
                            evalFtrMat = evalFtrMat,
                            evalScore = evalScore,
                            evalLabel = evalLabel,
-                           damping = None)
+                           damping = 1E-2)
     upLossVec = influence.CalcUpWeighLoss(targetID = evalTgtIdx)
     
-    skip = 300
-    skippedIdx = np.arange(upLossVec.size)[::skip]
+    plotNum = 30
+    skippedIdx = np.linspace(0, upLossVec.size - 1, plotNum // 3).astype(np.int)
     
     # ポジネガそれぞれで最も悪影響を与えてる学習サンプルを必ず評価に入れる
     upLossArgSort = np.argsort(upLossVec)
-    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][-1])
-    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][-1])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][-plotNum // 3:])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][-plotNum // 3:])
     skippedIdx = np.unique(skippedIdx)
     
     relearnLoss = np.empty(skippedIdx.size).astype(np.float)
