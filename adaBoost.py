@@ -21,6 +21,7 @@ class AdaBoostParam(CParam):
         setDicts["Type"] = selparam("Discrete", "Real", "RealTree")
         setDicts["Saturate"] = True
         setDicts["SaturateLevel"] = 0.4
+        setDicts["SaturateLoss"] = False
         setDicts["Bin"] = 32
         setDicts["Loop"] = 10000
         setDicts["Regularizer"] = 1e-5
@@ -50,6 +51,7 @@ class CAdaBoost:
         self.__regularize = adaBoostParam["Regularizer"]
         self.__saturate = adaBoostParam["Saturate"]
         self.__saturateLevel = adaBoostParam["SaturateLevel"]
+        self.__saturateLoss = adaBoostParam["SaturateLoss"]
         self.__treeDepth = adaBoostParam["TreeDepth"]
         self.__regDataDist = adaBoostParam["regDataDist"]
         self.__verbose = adaBoostParam["verbose"]
@@ -120,8 +122,14 @@ class CAdaBoost:
                 if remainNum > 0:
                     
                     if remainNum < featureNum:
-                        for s in range(sampleNum):
-                            sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]))
+                        if self.__saturateLoss:
+                            for s in range(sampleNum):
+                                c = self.__saturateLevel
+                                sampleWeight[s] = np.prod(1.0 - labelList[s] * boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]) ** (1.0 / c + 1.0)
+                                assert((sampleWeight > 0.0).all())
+                        else:
+                            for s in range(sampleNum):
+                                sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]))
                         sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
                         sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
 
@@ -137,8 +145,14 @@ class CAdaBoost:
                     selectHistNeg = histoNeg[remainBestID]
                 else:
                     # 2週目以降の補正
-                    for s in range(sampleNum):
-                        sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[np.delete(base + trainBinMat[s][boostOrder], w % featureNum)]))
+                    if self.__saturateLoss:
+                        for s in range(sampleNum):
+                            c = self.__saturateLevel
+                            sampleWeight[s] = np.prod(1.0 - labelList[s] * boostRelia.flatten()[np.delete(base + trainBinMat[s][boostOrder], w % featureNum)]) ** (1.0 / c + 1.0)
+                            assert((sampleWeight > 0.0).all())
+                    else:
+                        for s in range(sampleNum):
+                            sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[np.delete(base + trainBinMat[s][boostOrder], w % featureNum)]))
                     sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
                     sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
@@ -249,8 +263,18 @@ class CAdaBoost:
     
     def __CalcLoss(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum):
         
-        scoreVec = self.__CalcScore(boostRelia, boostOrder, scoreMat, label, bin, selectedNum)
-        lossVec = np.exp(-1 * label * scoreVec)
+        if self.__saturateLoss:
+            base = np.arange(boostRelia.shape[0]) * bin
+            learnedParamVec = boostRelia[np.argsort(boostOrder)].flatten()       
+            c = self.__saturateLevel
+            ftrBinMat = (scoreMat * bin).astype(np.int)
+            ftrBinMat = ftrBinMat * (ftrBinMat < bin) + (bin) * (ftrBinMat >= bin)
+            lossVec = np.empty(scoreMat.shape[0]).astype(np.float)
+            for s in range(scoreMat.shape[0]):
+                lossVec[s] = np.prod(1.0 - label[s] * learnedParamVec[base + ftrBinMat[s]]) ** (1.0 / c + 1.0)
+        else:
+            scoreVec = self.__CalcScore(boostRelia, boostOrder, scoreMat, label, bin, selectedNum)
+            lossVec = np.exp(-1 * label * scoreVec)
         lossVec[label ==  1] = lossVec[label ==  1] / np.sum(label ==  1)
         lossVec[label == -1] = lossVec[label == -1] / np.sum(label == -1)
         return np.sum(lossVec)
@@ -414,20 +438,21 @@ def main(boostLoop):
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
-    hogParam["Block"]["X"] = 1
-    hogParam["Block"]["Y"] = 1
+    hogParam["Cell"]["X"] = 5
+    hogParam["Cell"]["Y"] = 10
+    hogParam["Block"]["X"] = 2
+    hogParam["Block"]["Y"] = 2
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
-    adaBoostParam["Regularizer"] = 0.0#1e-4
+    adaBoostParam["Regularizer"] = 1e-4
     adaBoostParam["Bin"] = 32
     adaBoostParam["Type"].setTrue("Real")
-    adaBoostParam["Saturate"] = False
+    adaBoostParam["Saturate"] = True
+    adaBoostParam["SaturateLoss"] = False
     adaBoostParam["verbose"] = True
-    adaBoostParam["saveDetail"] = False
-    adaBoostParam["Loop"] = 9999999
+    adaBoostParam["saveDetail"] = True
+    adaBoostParam["Loop"] = 999999
     adaBoostParam["BoostLoop"] = boostLoop
     
     adaBoost = CAdaBoost()
@@ -460,7 +485,7 @@ def main(boostLoop):
 
 if "__main__" == __name__:
     
-    print(main(int(2)))
+    print(main(int(1)))
     exit()
     
     plt.figure()
