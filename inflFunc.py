@@ -148,9 +148,10 @@ class CInfluence:
                 reguPart = 2.0 * np.cosh(learnedParam.flatten())
             hessian = hessian + np.diag(hyperParam["Regularizer"] * reguPart)
             '''
+            hessian = hessian + hyperParam["Regularizer"] * np.diag(2.0 * np.cosh(learnedParam.flatten()))
             # damping
             if None != damping:
-                dampHessian = hessian + damping * np.eye(hessian.shape[0])
+                dampHessian = hessian + damping * np.diag(2.0 * np.cosh(learnedParam.flatten()))#np.eye(hessian.shape[0])
             else:
                 dampHessian = hessian
             assert(not np.isnan(dampHessian).any())
@@ -267,8 +268,8 @@ def calcError():
 
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 1
-    hogParam["Cell"]["Y"] = 2
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -291,10 +292,10 @@ def calcError():
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Saturate"] = False
     adaBoostParam["Regularizer"] = 1e-2
-    adaBoostParam["BoostLoop"] = 1
+    adaBoostParam["BoostLoop"] = 8
     
     adaBoostParam_opt = adaBoostParam.copy()
-    adaBoostParam_opt["BoostLoop"] = 8
+    #adaBoostParam_opt["BoostLoop"] = 8
     #adaBoostParam_opt["Saturate"] = False
     #adaBoostParam_opt["SaturateLoss"] = True
     optAdaTable, _1, _2, _3 = smallSampleTry(hyperParam = adaBoostParam_opt,
@@ -322,16 +323,18 @@ def calcError():
                            evalFtrMat = evalFtrMat,
                            evalScore = evalScore,
                            evalLabel = evalLabel,
-                           damping = 1E-2)
+                           damping = None)
     upLossVec = influence.CalcUpWeighLoss(targetID = evalTgtIdx)
     
     plotNum = 30
-    skippedIdx = np.linspace(0, upLossVec.size - 1, plotNum // 3).astype(np.int)
+    skippedIdx = np.linspace(0, upLossVec.size - 1, plotNum // 5).astype(np.int)
     
     # ポジネガそれぞれで最も悪影響を与えてる学習サンプルを必ず評価に入れる
     upLossArgSort = np.argsort(upLossVec)
-    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][-plotNum // 3:])
-    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][-plotNum // 3:])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][- plotNum // 5:])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][- plotNum // 5:])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel ==  1][:plotNum // 5])
+    skippedIdx = np.append(skippedIdx, upLossArgSort[learnLabel == -1][:plotNum // 5])
     skippedIdx = np.unique(skippedIdx)
     
     relearnLoss = np.empty(skippedIdx.size).astype(np.float)
