@@ -18,7 +18,7 @@ class CInfluenceParam(CParam):
         super().__init__(setDicts)
 
 class CInfluence:
-    def __init__(self, inflParam, hyperParam, learnedParam, optLearnedParam, 
+    def __init__(self, inflParam, hyperParam, learnedParam,
                  learnFtrMat, learnScore, learnLabel,
                  evalFtrMat, evalScore, evalLabel,
                  damping = None):
@@ -29,7 +29,6 @@ class CInfluence:
         self.__dLdtheta_eval = self.__Prepare(param = inflParam,
                                               hyperParam = hyperParam,
                                               learnedParam = learnedParam,
-                                              optLearnedParam = optLearnedParam,
                                               learnFtrMat = learnFtrMat,
                                               learnScore = learnScore,
                                               learnLabel = learnLabel,
@@ -81,7 +80,7 @@ class CInfluence:
         
         return remainIdx, removeIdx, targetID
     
-    def __Prepare(self, param, hyperParam, learnedParam, optLearnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel, damping):
+    def __Prepare(self, param, hyperParam, learnedParam, learnFtrMat, learnScore, learnLabel, evalFtrMat, evalScore, evalLabel, damping):
         
         if param["learner"]["RealAdaBoost"]:
             learnSample = learnFtrMat.shape[0]
@@ -161,12 +160,6 @@ class CInfluence:
                 eigen, _ = GetEigen(dampHessian)
                 assert((eigen > 0.0).all())
 
-            if None != optLearnedParam:
-                assert(optLearnedParam.shape == learnedParam.shape)
-                opt = optLearnedParam
-            else:
-                opt = learnedParam
-            
             learnDiffL = np.empty((learnSample, thetaN))
             for s in tqdm(range(learnSample)):
                 oneLine = np.zeros(thetaN)
@@ -295,9 +288,6 @@ def calcError():
     adaBoostParam["BoostLoop"] = 8
     
     adaBoostParam_opt = adaBoostParam.copy()
-    #adaBoostParam_opt["BoostLoop"] = 8
-    #adaBoostParam_opt["Saturate"] = False
-    #adaBoostParam_opt["SaturateLoss"] = True
     optAdaTable, _1, _2, _3 = smallSampleTry(hyperParam = adaBoostParam_opt,
                                              learnFtrMat = learnFtrMat,
                                              learnLabel = learnLabel,
@@ -315,8 +305,7 @@ def calcError():
     
     influence = CInfluence(inflParam = CInfluenceParam(),
                            hyperParam = adaBoostParam,
-                           learnedParam = refAdaTable,
-                           optLearnedParam = optAdaTable,
+                           learnedParam = optAdaTable,
                            learnFtrMat = learnFtrMat,
                            learnScore = learnScore,
                            learnLabel = learnLabel,
