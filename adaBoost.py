@@ -35,6 +35,8 @@ class AdaBoostParam(CParam):
 class CAdaBoost:
     
     def __init__(self):
+        self.__learnScoreMat = None
+        self.__learnLabel = None
         pass
     
     def SetParam(self, inAdaBoostParam = None):
@@ -74,6 +76,8 @@ class CAdaBoost:
         assert(isinstance(labelList, np.ndarray))
         assert(labelList.ndim == 1)
         assert(trainScoreMat.shape[0] == labelList.size)
+        self.__learnScoreMat = trainScoreMat
+        self.__learnLabel = labelList
 
         posIdx = (labelList ==  1)
         negIdx = (labelList == -1)
@@ -216,7 +220,8 @@ class CAdaBoost:
                                             boostOrder = boostOrder,
                                             scoreMat = trainScoreMat,
                                             label = labelList,
-                                            bin = self.__bin)
+                                            bin = self.__bin,
+                                            selectedNum = None)
 
     def Evaluate(self, testScoreMat, label):
         
@@ -279,11 +284,24 @@ class CAdaBoost:
         lossVec[label == -1] = lossVec[label == -1] / np.sum(label == -1)
         return np.sum(lossVec)
         
-    def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum = None):
-
-        if selectedNum:
-            selected = selectedNum
-        else:
+    def CalcWeakScore(self, 
+                      label = None, 
+                      bin = None,
+                      scoreMat = None, 
+                      boostRelia = None,
+                      boostOrder = None,
+                      selectedNum = None):
+        if None == label:
+            label = self.__learnLabel
+        if None == bin:
+            bin = self.__bin
+        if None == scoreMat:
+            scoreMat = self.__learnScoreMat
+        if None == boostRelia:
+            boostRelia = self.__relia
+        if None == boostOrder:
+            boostOrder = self.__reliaID
+        if None == selectedNum:
             selected = boostRelia.shape[0]
         
         # スコアをBIN値に換算
@@ -295,10 +313,21 @@ class CAdaBoost:
 
         if self.__verbose:
             print("calculating scores for every sample...")
+            
+        weakScore = np.empty((dstScoreVec.size, selected)).astype(np.float)
         for s in IterLog(range(dstScoreVec.size), self.__verbose):
-            dstScoreVec[s] = np.sum(np.sum(boostReliaVec[base + binMat[s][boostOrder]][:selected]))
-        return dstScoreVec
+            weakScore[s] = boostReliaVec[base + binMat[s][boostOrder]][:selected]
+        return weakScore
     
+    def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum):
+        weakScore = self.CalcWeakScore(label = label,
+                                       bin = bin,
+                                       scoreMat = scoreMat,
+                                       boostRelia = boostRelia,
+                                       boostOrder = boostOrder,
+                                       selectedNum = selectedNum)
+        return np.sum(weakScore, axis = 1)
+
     # AdaBoostの計算過程を記録する(optional)
     def __SaveLearning(self, boostRelia, boostOrder, scoreMat, trainLabel):
 
