@@ -215,14 +215,15 @@ class CAdaBoost:
                                 boostOrder,
                                 trainScoreMat,
                                 labelList)
-        
+        '''        
         return self.__CalcScore(boostRelia = boostRelia,
                                             boostOrder = boostOrder,
                                             scoreMat = trainScoreMat,
                                             label = labelList,
                                             bin = self.__bin,
                                             selectedNum = None)
-
+        '''
+            
     def Evaluate(self, testScoreMat, label):
         
         # 評価用サンプルに対する各弱識別器のスコアを算出
