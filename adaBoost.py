@@ -438,10 +438,10 @@ def main(boostLoop):
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 5
-    hogParam["Cell"]["Y"] = 10
-    hogParam["Block"]["X"] = 2
-    hogParam["Block"]["Y"] = 2
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
+    hogParam["Block"]["X"] = 1
+    hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
 
     adaBoostParam = AdaBoostParam()
@@ -450,8 +450,8 @@ def main(boostLoop):
     adaBoostParam["Type"].setTrue("Real")
     adaBoostParam["Saturate"] = True
     adaBoostParam["SaturateLoss"] = False
-    adaBoostParam["verbose"] = True
-    adaBoostParam["saveDetail"] = True
+    adaBoostParam["verbose"] = False
+    adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 999999
     adaBoostParam["BoostLoop"] = boostLoop
     
