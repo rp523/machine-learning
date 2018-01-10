@@ -23,12 +23,12 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         adaBoost = CAdaBoost()
         adaBoost.SetParam(inAdaBoostParam = inAdaBoostParam)
     
-        adaBoost.Boost(trainScoreMat = learnFtrMat,
-                                    labelList = learnLabel)
+        adaBoost.Boost( trainScoreMat = learnFtrMat,
+                        labelList = learnLabel)
         weakScoreMat = adaBoost.CalcWeakScore()
         refScoreVec = adaBoost.CalcWeakScore(label = evalLabel,
                                              scoreMat = evalVec.reshape(1, -1))
-        distMat += np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
+        distMat[learnIdx] = distMat[learnIdx] + np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
     return distMat / inBootNum
         
 def smallSampleTry(hyperParam,
