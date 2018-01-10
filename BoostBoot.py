@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+import pandas as pd
 from common.mathtool import *
 
 
@@ -56,7 +57,7 @@ def smallSampleTry(hyperParam,
 
     return adaTable[np.argsort(boostOrder)], learnScore, evalScore, evalLossVec
 
-if "__main__" == __name__:
+def main():
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
     ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
     learnImg = RGB2Gray(np.append(lp, ln, axis = 0), "green")
@@ -68,8 +69,8 @@ if "__main__" == __name__:
 
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 1
-    hogParam["Cell"]["Y"] = 1
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -111,34 +112,55 @@ if "__main__" == __name__:
                              inBootRatio = 1.0,
                              inUseFeatNum = learnFtrMat.shape[1])
     
-    print("OK")
-    plotNum = 30
+
+    plotNum = 100
     
     # 最も悪影響を与えてる学習サンプルを必ず評価に入れる
-    distArgSort = np.argsort(learnDistVec)
+    argsortedDist = np.argsort(learnDistVec)
+    sortedDist = learnDistVec[argsortedDist]
 
-    skippedIdx = np.linspace(0, distArgSort.size - 1, plotNum // 5 * 3).astype(np.int)
-    skippedIdx = np.append(skippedIdx, distArgSort[- plotNum // 5:])
-    skippedIdx = np.append(skippedIdx, distArgSort[ :plotNum // 5 ])
+    skippedIdx = np.linspace(0, sortedDist.size - 1, plotNum // 5 * 3).astype(np.int)
+    skippedIdx = np.append(skippedIdx, argsortedDist[- plotNum // 5:])
+    skippedIdx = np.append(skippedIdx, argsortedDist[ :plotNum // 5 ])
     skippedIdx = np.unique(skippedIdx)
-
-    plotPosIdx = learnLabel[skippedIdx] ==  1
-    plotNegIdx = learnLabel[skippedIdx] == -1
     
-    plotModEvalScore = np.empty(0).astype(np.float)
-    print("checking re-training")
-    for i in tqdm(skippedIdx):
-        _1, _2, modEvalScoreVec, _3 = smallSampleTry(hyperParam = adaBoostParam,
-                                                 learnFtrMat = np.delete(learnFtrMat, i, axis = 0),
-                                                 learnLabel = np.delete(learnLabel, i),
-                                                 evalFtrMat = evalFtrMat,
-                                                 evalLabel = evalLabel)
-        plotModEvalScore = np.append(plotModEvalScore, modEvalScoreVec[evalTgtIdx])
+    plotPosIdx = (learnLabel[skippedIdx] ==  1)
+    plotNegIdx = (learnLabel[skippedIdx] == -1)
+    
+    resFile = "result.xlsx"
+    if not os.path.exists(resFile):
+        print("write")
+        plotModEvalScore = np.empty(0).astype(np.float)
+        print("checking re-training")
+        for i in tqdm(skippedIdx):
+            _1, _2, modEvalScoreVec, _3 = smallSampleTry(hyperParam = adaBoostParam,
+                                                     learnFtrMat = np.delete(learnFtrMat, i, axis = 0),
+                                                     learnLabel = np.delete(learnLabel, i),
+                                                     evalFtrMat = evalFtrMat,
+                                                     evalLabel = evalLabel)
+            plotModEvalScore = np.append(plotModEvalScore, modEvalScoreVec[evalTgtIdx])
+ 
+        writer = pd.ExcelWriter(resFile, engine = 'xlsxwriter')
+        df = pd.DataFrame()
+        df["plotModEvalScore"] = plotModEvalScore
+        df.to_excel(writer, sheet_name = "result")
+        pd.DataFrame.from_dict(adaBoostParam).to_excel(writer, sheet_name = "AdaParam")
+        pd.DataFrame.from_dict(hogParam).to_excel(writer, sheet_name = "HogParam")
+        writer.save()
+        writer.close()
+        print(plotModEvalScore)
+
+    else:
+        print("read")
+        plotModEvalScore = np.array(pd.read_excel(resFile, sheetname = "result")["plotModEvalScore"])
 
     print("tgt cls:", evalLabel[evalTgtIdx])
     x = plotModEvalScore - refTgtEvalScore
-    y1 = distArgSort[skippedIdx]
-    y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx] ** 2), axis = 1))
+    
+    # 近似
+    y1 = sortedDist[skippedIdx]
+    # 実際
+    y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
 
     fig = plt.figure()
     ax1 = fig.add_subplot(121)
@@ -153,6 +175,8 @@ if "__main__" == __name__:
     ax2.set_title("Euclid Dist.")
     plt.show()
 
+if "__main__" == __name__:
+    main()
     print("Done.")
 
 
