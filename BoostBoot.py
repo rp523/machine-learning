@@ -117,9 +117,8 @@ def main():
     
     # 最も悪影響を与えてる学習サンプルを必ず評価に入れる
     argsortedDist = np.argsort(learnDistVec)
-    sortedDist = learnDistVec[argsortedDist]
 
-    skippedIdx = np.linspace(0, sortedDist.size - 1, plotNum // 5 * 3).astype(np.int)
+    skippedIdx = np.linspace(0, argsortedDist.size - 1, plotNum // 5 * 3).astype(np.int)
     skippedIdx = np.append(skippedIdx, argsortedDist[- plotNum // 5:])
     skippedIdx = np.append(skippedIdx, argsortedDist[ :plotNum // 5 ])
     skippedIdx = np.unique(skippedIdx)
@@ -158,7 +157,7 @@ def main():
     x = plotModEvalScore - refTgtEvalScore
     
     # 近似
-    y1 = sortedDist[skippedIdx]
+    y1 = learnDistVec[skippedIdx]
     # 実際
     y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
 
