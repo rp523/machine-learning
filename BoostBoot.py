@@ -108,12 +108,12 @@ def main():
                              evalVec = evalFtrMat[evalTgtIdx],
                              evalLabel = evalLabel[evalTgtIdx], 
                              inAdaBoostParam = adaBoostParam,
-                             inBootNum = 1,
-                             inBootRatio = 1.0,
+                             inBootNum = 10,
+                             inBootRatio = 0.5,
                              inUseFeatNum = learnFtrMat.shape[1])
     
 
-    plotNum = 100
+    plotNum = 300
     
     # 最も悪影響を与えてる学習サンプルを必ず評価に入れる
     argsortedDist = np.argsort(learnDistVec)
