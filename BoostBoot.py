@@ -13,7 +13,9 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     sampleNum = inLearnFtrMat.shape[0]
     featureNum = inLearnFtrMat.shape[1]
     
-    distMat = np.zeros(sampleNum).astype(np.float)
+    distMat = np.zeros((sampleNum, inBootNum)).astype(np.float)
+    distCnt = np.zeros(sampleNum).astype(np.int)
+    
     for l in range(inBootNum):
         learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
         
@@ -28,8 +30,17 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         weakScoreMat = adaBoost.CalcWeakScore()
         refScoreVec = adaBoost.CalcWeakScore(label = evalLabel,
                                              scoreMat = evalVec.reshape(1, -1))
-        distMat[learnIdx] = distMat[learnIdx] + np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
-    return distMat / inBootNum
+        
+        distMat[learnIdx, distCnt[learnIdx]] += np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
+        distCnt[learnIdx] += 1
+        
+    distVec = np.zeros(sampleNum).astype(np.float)
+    for i in range(sampleNum):
+        if distCnt[i] > 0:
+            distVec[i] = np.median(distMat[i][:distCnt[i]])
+        else:
+            distVec[i] = 0.0
+    return distVec
         
 def smallSampleTry(hyperParam,
                    learnFtrMat, 
