@@ -33,14 +33,18 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         
         distMat[learnIdx, distCnt[learnIdx]] += np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
         distCnt[learnIdx] += 1
+        print(l, np.sum(distCnt == 0), np.min(distCnt))
         
-    distVec = np.zeros(sampleNum).astype(np.float)
+    medianVec = np.zeros(sampleNum).astype(np.float)
+    meanVec = np.zeros(sampleNum).astype(np.float)
     for i in range(sampleNum):
         if distCnt[i] > 0:
-            distVec[i] = np.median(distMat[i][:distCnt[i]])
+            medianVec[i] = np.median(distMat[i][:distCnt[i]])
+            meanVec[i] = np.average(distMat[i][:distCnt[i]])
         else:
-            distVec[i] = 0.0
-    return distVec
+            medianVec[i] = 0.0
+            meanVec[i] = 0.0
+    return medianVec, meanVec
         
 def smallSampleTry(hyperParam,
                    learnFtrMat, 
@@ -114,33 +118,28 @@ def main():
     evalTgtIdx = np.argsort(refEvalLossVec)[-1]
     refTgtEvalScore = refEvalScoreVec[evalTgtIdx]
     
-    learnDistVec = BoostBoot(inLearnFtrMat = learnFtrMat,
+    learnDistMedianVec, learnDistMeanVec = BoostBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
                              evalVec = evalFtrMat[evalTgtIdx],
                              evalLabel = evalLabel[evalTgtIdx], 
                              inAdaBoostParam = adaBoostParam,
-                             inBootNum = 10,
+                             inBootNum = 100,
                              inBootRatio = 0.5,
                              inUseFeatNum = learnFtrMat.shape[1])
     
 
     plotNum = 300
     
-    # 最も悪影響を与えてる学習サンプルを必ず評価に入れる
-    argsortedDist = np.argsort(learnDistVec)
-
-    skippedIdx = np.linspace(0, argsortedDist.size - 1, plotNum // 5 * 3).astype(np.int)
-    skippedIdx = np.append(skippedIdx, argsortedDist[- plotNum // 5:])
-    skippedIdx = np.append(skippedIdx, argsortedDist[ :plotNum // 5 ])
+    skippedIdx = np.linspace(0, learnImg.shape[0] - 1, plotNum).astype(np.int)
     skippedIdx = np.unique(skippedIdx)
     
     plotPosIdx = (learnLabel[skippedIdx] ==  1)
     plotNegIdx = (learnLabel[skippedIdx] == -1)
     
-    resFile = "result.xlsx"
+    resFile = "result.csv"
     if not os.path.exists(resFile):
         print("write")
-        plotModEvalScore = np.empty(0).astype(np.float)
+        plotModEvalScore = []
         print("checking re-training")
         for i in tqdm(skippedIdx):
             _1, _2, modEvalScoreVec, _3 = smallSampleTry(hyperParam = adaBoostParam,
@@ -148,8 +147,10 @@ def main():
                                                      learnLabel = np.delete(learnLabel, i),
                                                      evalFtrMat = evalFtrMat,
                                                      evalLabel = evalLabel)
-            plotModEvalScore = np.append(plotModEvalScore, modEvalScoreVec[evalTgtIdx])
- 
+            plotModEvalScore.append(modEvalScoreVec[evalTgtIdx])
+        
+        np.savetxt(resFile, np.array(plotModEvalScore))
+        '''
         writer = pd.ExcelWriter(resFile, engine = 'xlsxwriter')
         df = pd.DataFrame()
         df["plotModEvalScore"] = plotModEvalScore
@@ -158,31 +159,39 @@ def main():
         pd.DataFrame.from_dict(hogParam).to_excel(writer, sheet_name = "HogParam")
         writer.save()
         writer.close()
+        '''
         print(plotModEvalScore)
 
     else:
         print("read")
-        plotModEvalScore = np.array(pd.read_excel(resFile, sheetname = "result")["plotModEvalScore"])
-
+        plotModEvalScore = np.loadtxt(resFile).flatten()
+        
     print("tgt cls:", evalLabel[evalTgtIdx])
     x = plotModEvalScore - refTgtEvalScore
     
-    # 近似
-    y1 = learnDistVec[skippedIdx]
-    # 実際
-    y2 = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
-
     fig = plt.figure()
-    ax1 = fig.add_subplot(121)
-    ax1.plot(x[plotPosIdx], y1[plotPosIdx], ".", color="red")
-    ax1.plot(x[plotNegIdx], y1[plotNegIdx], ".", color="blue")
+
+    y = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
+    ax1 = fig.add_subplot(131)
+    ax1.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax1.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax1.grid(True)
-    ax1.set_title("BoostBoot Dist.")
-    ax2 = fig.add_subplot(122)
-    ax2.plot(x[plotPosIdx], y2[plotPosIdx], ".", color="red")
-    ax2.plot(x[plotNegIdx], y2[plotNegIdx], ".", color="blue")
+    ax1.set_title("Euclid Dist.")
+
+    y = learnDistMedianVec[skippedIdx]
+    ax2 = fig.add_subplot(132)
+    ax2.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax2.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax2.grid(True)
-    ax2.set_title("Euclid Dist.")
+    ax2.set_title("BoostBoot Median.")
+
+    y = learnDistMeanVec[skippedIdx]
+    ax3 = fig.add_subplot(133)
+    ax3.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax3.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
+    ax3.grid(True)
+    ax3.set_title("BoostBoot Mean.")
+
     plt.show()
 
 if "__main__" == __name__:
