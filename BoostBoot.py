@@ -24,7 +24,7 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         
         fastBoostParam = inAdaBoostParam.copy()
         fastBoostParam["Loop"] = adaLoop
-        fastBoostParam["FastScan"] = fastScanRate
+        fastBoostParam["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
         adaBoost = CAdaBoost()
         adaBoost.SetParam(inAdaBoostParam = inAdaBoostParam)
     
