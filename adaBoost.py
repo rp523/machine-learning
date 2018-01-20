@@ -30,6 +30,7 @@ class AdaBoostParam(CParam):
         setDicts["verbose"] = True
         setDicts["saveDetail"] = False
         setDicts["BoostLoop"] = 1
+        setDicts["FastScan"] = 1
         super().__init__(setDicts) 
 
 class CAdaBoost:
@@ -58,6 +59,7 @@ class CAdaBoost:
         self.__regDataDist = adaBoostParam["regDataDist"]
         self.__verbose = adaBoostParam["verbose"]
         self.__saveDetail = adaBoostParam["saveDetail"]
+        self.__fastScan = adaBoostParam["FastScan"]
         self.__featureLen = None
         
     def __GetFeatureLength(self):
@@ -87,8 +89,8 @@ class CAdaBoost:
         assert(sampleNum == posSampleNum + negSampleNum)
 
         featureNum = trainScoreMat.shape[1]
-        adaLoop = min(self.__loopNum, featureNum)
- 
+        adaLoop = min(self.__loopNum * self.__fastScan, featureNum)
+        
         # サンプルデータの重みを初期化
         sampleWeight = np.empty(sampleNum)
         sampleWeight[posIdx] = 1.0 / posSampleNum
@@ -126,6 +128,7 @@ class CAdaBoost:
                 if remainNum > 0:
                     
                     if remainNum < featureNum:
+                        # 1週目の2特徴目以降はサンプル重みを更新
                         if self.__saturateLoss:
                             for s in range(sampleNum):
                                 c = self.__saturateLevel
@@ -144,9 +147,9 @@ class CAdaBoost:
                         histoPos[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
                         histoNeg[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
                     # 残っている弱識別器から最優秀のものを選択
-                    remainBestID = np.argmin(np.sum(np.sqrt(histoPos * histoNeg), axis=1))
-                    selectHistPos = histoPos[remainBestID]
-                    selectHistNeg = histoNeg[remainBestID]
+                    remainGoodID = np.argsort(np.sum(np.sqrt(histoPos * histoNeg), axis=1))[:self.__fastScan]
+                    selectHistPos = histoPos[remainGoodID]
+                    selectHistNeg = histoNeg[remainGoodID]
                 else:
                     # 2週目以降の補正
                     if self.__saturateLoss:
@@ -191,9 +194,9 @@ class CAdaBoost:
                     h = np.dot(smoother, h)
                 
                 if remainNum > 0:
-                    boostRelia[w] = h
-                    selectID_abs = np.arange(featureNum)[remains][remainBestID]
-                    boostOrder[w] = selectID_abs
+                    boostRelia[w:w + self.__fastScan] = h
+                    selectID_abs = np.arange(featureNum)[remains][remainGoodID]
+                    boostOrder[w:w + self.__fastScan] = selectID_abs
                     remains[selectID_abs] = False
                 else:
                     boostRelia[np.where(boostOrder == selectFeature_abs)] = h
@@ -303,7 +306,7 @@ class CAdaBoost:
         if None == boostOrder:
             boostOrder = self.__reliaID
         if None == selectedNum:
-            selected = boostRelia.shape[0]
+            selectedNum = boostRelia.shape[0]
         
         # スコアをBIN値に換算
         binMat = (scoreMat * bin).astype(np.int)
@@ -311,13 +314,13 @@ class CAdaBoost:
         dstScoreVec = np.empty(binMat.shape[0])
         base = np.arange(boostOrder.size) * bin
         boostReliaVec = boostRelia.flatten()       
-
+        
         if self.__verbose:
             print("calculating scores for every sample...")
             
-        weakScore = np.empty((dstScoreVec.size, selected)).astype(np.float)
+        weakScore = np.empty((dstScoreVec.size, selectedNum)).astype(np.float)
         for s in IterLog(range(dstScoreVec.size), self.__verbose):
-            weakScore[s] = boostReliaVec[base + binMat[s][boostOrder]][:selected]
+            weakScore[s] = boostReliaVec[base + binMat[s][boostOrder]][:selectedNum]
         return weakScore
     
     def __CalcScore(self, boostRelia, boostOrder, scoreMat, label, bin, selectedNum):
@@ -345,7 +348,8 @@ class CAdaBoost:
                                             boostOrder = boostOrder,
                                             scoreMat = scoreMat,
                                             label = trainLabel,
-                                            bin = self.__bin)
+                                            bin = self.__bin,
+                                            selectedNum = boostOrder.size)
 
         # 全特徴スコアの記録
         for i in range(scoreMat.shape[1]):
@@ -398,7 +402,8 @@ class CAdaBoost:
                                            boostOrder = boostOrder,
                                            scoreMat = scoreMat,
                                            label = label,
-                                           bin = self.__bin)
+                                           bin = self.__bin,
+                                           selectedNum = boostOrder.size)
 
         # 全特徴スコアを記録
         featureColumn = []
@@ -484,6 +489,7 @@ def main(boostLoop):
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 999999
     adaBoostParam["BoostLoop"] = boostLoop
+    adaBoostParam["FastScan"] = 1
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam)
