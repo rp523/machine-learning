@@ -9,7 +9,7 @@ import pandas as pd
 from common.mathtool import *
 
 
-def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, inBootNum, inBootRatio, inUseFeatNum):
+def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, inBootNum, inBootRatio, inUseFeatNum, adaLoop, fastScanRate):
     sampleNum = inLearnFtrMat.shape[0]
     featureNum = inLearnFtrMat.shape[1]
     
@@ -21,7 +21,10 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         
         learnFtrMat = inLearnFtrMat[learnIdx]
         learnLabel = inLearnLabel[learnIdx]
-    
+        
+        fastBoostParam = inAdaBoostParam.copy()
+        fastBoostParam["Loop"] = adaLoop
+        fastBoostParam["FastScan"] = fastScanRate
         adaBoost = CAdaBoost()
         adaBoost.SetParam(inAdaBoostParam = inAdaBoostParam)
     
@@ -108,7 +111,6 @@ def main():
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Saturate"] = True
     adaBoostParam["Regularizer"] = 1e-2
-    adaBoostParam["BoostLoop"] = 8
 
     refAdaTable, reflearnScoreVec, refEvalScoreVec, refEvalLossVec = smallSampleTry(hyperParam = adaBoostParam,
                                                                      learnFtrMat = learnFtrMat,
@@ -124,11 +126,13 @@ def main():
                              evalLabel = evalLabel[evalTgtIdx], 
                              inAdaBoostParam = adaBoostParam,
                              inBootNum = 100,
-                             inBootRatio = 0.5,
-                             inUseFeatNum = learnFtrMat.shape[1])
+                             inBootRatio = 0.1,
+                             inUseFeatNum = learnFtrMat.shape[1],
+                             adaLoop = 1,
+                             fastScanRate = 0.1)
     
 
-    plotNum = 300
+    plotNum = 100
     
     skippedIdx = np.linspace(0, learnImg.shape[0] - 1, plotNum).astype(np.int)
     skippedIdx = np.unique(skippedIdx)
@@ -160,7 +164,6 @@ def main():
         writer.save()
         writer.close()
         '''
-        print(plotModEvalScore)
 
     else:
         print("read")
