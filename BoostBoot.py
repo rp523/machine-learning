@@ -16,6 +16,22 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     distMat = np.zeros((sampleNum, inBootNum)).astype(np.float)
     distCnt = np.zeros(sampleNum).astype(np.int)
     
+    learnFtrBin = (inLearnFtrMat * inAdaBoostParam["Bin"]).astype(np.int)
+    learnFtrBin[learnFtrBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
+    learnFtrBinFlg = np.zeros((learnFtrBin.shape[0], learnFtrBin.shape[1], inAdaBoostParam["Bin"])).astype(np.bool)
+    for s in (range(learnFtrBin.shape[0])):
+        for f in range(learnFtrBin.shape[1]):
+            learnFtrBinFlg[s,f,max(0, learnFtrBin[s,f] - 2):min(inAdaBoostParam["Bin"], learnFtrBin[s,f] + 2 + 1)] = True
+
+    evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int).reshape(1, -1)
+    evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
+    evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
+
+    #distKiyoFlg = (learnFtrBinFlg * evalVecBinFlg).astype(np.bool)
+    
+    for f in range(evalVecBin.size):
+        evalVecBinFlg[0,f,max(0, evalVecBin[0,f] - 2):min(inAdaBoostParam["Bin"], evalVecBin[0,f] + 2 + 1)] = True
+
     for l in range(inBootNum):
         learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
         
@@ -33,8 +49,17 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         weakScoreMat = adaBoost.CalcWeakScore()
         refScoreVec = adaBoost.CalcWeakScore(label = evalLabel,
                                              scoreMat = evalVec.reshape(1, -1))
+
+        table = adaBoost.GetLearnedTable()
         
-        distMat[learnIdx, distCnt[learnIdx]] += np.sum(np.abs(weakScoreMat - refScoreVec), axis = 1)
+        for idx in learnIdx:
+            assert(table.shape == learnFtrBinFlg[idx].shape)
+            assert(table.shape == evalVecBinFlg[0].shape)
+            leanedKiyo = np.average(table * learnFtrBinFlg[idx], axis = 1)
+            evalKiyo = np.average(table * evalVecBinFlg[0], axis = 1)
+            distKiyo = np.abs(evalKiyo - leanedKiyo)
+            assert(distKiyo.shape == (table.shape[0],))
+            distMat[idx, distCnt[idx]] += np.sum(distKiyo)
         distCnt[learnIdx] += 1
         print(l, np.sum(distCnt == 0), np.min(distCnt))
         
