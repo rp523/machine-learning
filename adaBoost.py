@@ -456,6 +456,9 @@ class CAdaBoost:
     def GetLearnedParam(self):
         return self.__reliaID, self.__relia
     
+    def GetLearnedTable(self):
+        return self.__relia[np.argsort(self.__reliaID)]
+    
 def main(boostLoop):
 
     for xlsxFile in  GetFileList(".", includingText = ".xlsx"):
