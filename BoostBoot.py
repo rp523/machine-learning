@@ -16,12 +16,13 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     distMat = np.zeros((sampleNum, inBootNum)).astype(np.float)
     distCnt = np.zeros(sampleNum).astype(np.int)
     
+    ran = 0
     learnFtrBin = (inLearnFtrMat * inAdaBoostParam["Bin"]).astype(np.int)
     learnFtrBin[learnFtrBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
     learnFtrBinFlg = np.zeros((learnFtrBin.shape[0], learnFtrBin.shape[1], inAdaBoostParam["Bin"])).astype(np.bool)
     for s in (range(learnFtrBin.shape[0])):
         for f in range(learnFtrBin.shape[1]):
-            learnFtrBinFlg[s,f,max(0, learnFtrBin[s,f] - 2):min(inAdaBoostParam["Bin"], learnFtrBin[s,f] + 2 + 1)] = True
+            learnFtrBinFlg[s,f,max(0, learnFtrBin[s,f] - ran):min(inAdaBoostParam["Bin"], learnFtrBin[s,f] + ran + 1)] = True
 
     evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int).reshape(1, -1)
     evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
@@ -30,7 +31,7 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     #distKiyoFlg = (learnFtrBinFlg * evalVecBinFlg).astype(np.bool)
     
     for f in range(evalVecBin.size):
-        evalVecBinFlg[0,f,max(0, evalVecBin[0,f] - 2):min(inAdaBoostParam["Bin"], evalVecBin[0,f] + 2 + 1)] = True
+        evalVecBinFlg[0,f,max(0, evalVecBin[0,f] - ran):min(inAdaBoostParam["Bin"], evalVecBin[0,f] + ran + 1)] = True
 
     for l in range(inBootNum):
         learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
@@ -51,15 +52,15 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
                                              scoreMat = evalVec.reshape(1, -1))
 
         table = adaBoost.GetLearnedTable()
-        
+        base = np.arange(table.shape[0]).astype(np.int) * table.shape[1]
         for idx in learnIdx:
             assert(table.shape == learnFtrBinFlg[idx].shape)
             assert(table.shape == evalVecBinFlg[0].shape)
-            leanedKiyo = np.average(table * learnFtrBinFlg[idx], axis = 1)
-            evalKiyo = np.average(table * evalVecBinFlg[0], axis = 1)
-            distKiyo = np.abs(evalKiyo - leanedKiyo)
-            assert(distKiyo.shape == (table.shape[0],))
-            distMat[idx, distCnt[idx]] += np.sum(distKiyo)
+            learnedKiyo = table.flatten()[base + learnFtrBin[idx]]
+            assert(learnedKiyo.shape == (table.shape[0],))
+            evalKiyo = table.flatten()[base + evalVecBin[0]]
+            assert(evalKiyo.shape == (table.shape[0],))
+            distMat[idx, distCnt[idx]] += np.sum(np.abs(learnedKiyo - evalKiyo))
         distCnt[learnIdx] += 1
         print(l, np.sum(distCnt == 0), np.min(distCnt))
         
@@ -112,8 +113,8 @@ def main():
 
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 3
+    hogParam["Cell"]["Y"] = 6
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -150,7 +151,7 @@ def main():
                              evalVec = evalFtrMat[evalTgtIdx],
                              evalLabel = evalLabel[evalTgtIdx], 
                              inAdaBoostParam = adaBoostParam,
-                             inBootNum = 100,
+                             inBootNum = 1000,
                              inBootRatio = 0.1,
                              inUseFeatNum = learnFtrMat.shape[1],
                              adaLoop = 1,
@@ -219,7 +220,8 @@ def main():
     ax3.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax3.grid(True)
     ax3.set_title("BoostBoot Mean.")
-
+    
+    plt.savefig("BoostBootTrial.png")
     plt.show()
 
 if "__main__" == __name__:
