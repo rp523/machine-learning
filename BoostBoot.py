@@ -43,22 +43,20 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         fastBoostParam["Loop"] = adaLoop
         fastBoostParam["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
         adaBoost = CAdaBoost()
-        adaBoost.SetParam(inAdaBoostParam = inAdaBoostParam)
+        adaBoost.SetParam(inAdaBoostParam = fastBoostParam)
     
         adaBoost.Boost( trainScoreMat = learnFtrMat,
                         labelList = learnLabel)
         weakScoreMat = adaBoost.CalcWeakScore()
         refScoreVec = adaBoost.CalcWeakScore(label = evalLabel,
                                              scoreMat = evalVec.reshape(1, -1))
-
+        boostOrder, relia = adaBoost.GetLearnedParam()
         table = adaBoost.GetLearnedTable()
         base = np.arange(table.shape[0]).astype(np.int) * table.shape[1]
         for idx in learnIdx:
-            assert(table.shape == learnFtrBinFlg[idx].shape)
-            assert(table.shape == evalVecBinFlg[0].shape)
-            learnedKiyo = table.flatten()[base + learnFtrBin[idx]]
+            learnedKiyo = table.flatten()[base + learnFtrBin[idx][np.sort(boostOrder)]]
             assert(learnedKiyo.shape == (table.shape[0],))
-            evalKiyo = table.flatten()[base + evalVecBin[0]]
+            evalKiyo = table.flatten()[base + evalVecBin[0][np.sort(boostOrder)]]
             assert(evalKiyo.shape == (table.shape[0],))
             distMat[idx, distCnt[idx]] += np.sum(np.abs(learnedKiyo - evalKiyo))
         distCnt[learnIdx] += 1
