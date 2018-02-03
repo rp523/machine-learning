@@ -61,6 +61,8 @@ class CAdaBoost:
         self.__saveDetail = adaBoostParam["saveDetail"]
         self.__fastScan = adaBoostParam["FastScan"]
         self.__featureLen = None
+        self.__posVote = None
+        self.__negVote = None
         
     def __GetFeatureLength(self):
         if None == self.__featureLen:
@@ -143,9 +145,13 @@ class CAdaBoost:
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
                     histoPos = np.zeros((remainNum, self.__bin))
                     histoNeg = np.zeros((remainNum, self.__bin))
+                    self.__posVote = np.zeros((remainNum, self.__bin)).astype(np.float)
+                    self.__negVote = np.zeros((remainNum, self.__bin)).astype(np.float)
                     for b in range(self.__bin):
                         histoPos[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
                         histoNeg[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
+                        self.__posVote[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
+                        self.__negVote[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
                     # 残っている弱識別器から最優秀のものを選択
                     remainGoodID = np.argsort(np.sum(np.sqrt(histoPos * histoNeg), axis=1))[:self.__fastScan]
                     selectHistPos = histoPos[remainGoodID]
@@ -174,14 +180,13 @@ class CAdaBoost:
                     selectHistNeg = histoNeg[selectFeature_abs]
                 
                 # 最優秀識別器の信頼性を算出
-                epsilon = 1e-10 #ゼロ割り回避
                 if self.__saturate == False:
-                    h = 0.5 * np.log((selectHistPos + self.__regularize + epsilon)
-                                    /(selectHistNeg + self.__regularize + epsilon))
+                    h = 0.5 * np.log((selectHistPos + self.__regularize + 1e-10)
+                                    /(selectHistNeg + self.__regularize + 1e-10))
                 else:
                     alpha = self.__saturateLevel
-                    expPos = (selectHistPos ** alpha) + self.__regularize + epsilon
-                    expNeg = (selectHistNeg ** alpha) + self.__regularize + epsilon
+                    expPos = (selectHistPos ** alpha) + self.__regularize + 1e-10
+                    expNeg = (selectHistNeg ** alpha) + self.__regularize + 1e-10
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
                 # スムージング
@@ -226,7 +231,11 @@ class CAdaBoost:
                                             bin = self.__bin,
                                             selectedNum = None)
         '''
-            
+    def GetVoteNum(self):
+        assert(None != self.__posVote)
+        assert(None != self.__negVote)
+        return self.__posVote, self.__negVote
+                    
     def Evaluate(self, testScoreMat, label):
         
         # 評価用サンプルに対する各弱識別器のスコアを算出
@@ -492,7 +501,7 @@ def main(boostLoop):
     adaBoostParam["saveDetail"] = False
     adaBoostParam["Loop"] = 999999
     adaBoostParam["BoostLoop"] = boostLoop
-    adaBoostParam["FastScan"] = 1
+    adaBoostParam["FastScan"] = 1   # Boostingのイテレーション回で同時に選択する特徴量数
     
     adaBoost = CAdaBoost()
     adaBoost.SetParam(  inAdaBoostParam = adaBoostParam)
