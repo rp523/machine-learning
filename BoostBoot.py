@@ -24,12 +24,45 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         for f in range(learnFtrBin.shape[1]):
             learnFtrBinFlg[s,f,max(0, learnFtrBin[s,f] - ran):min(inAdaBoostParam["Bin"], learnFtrBin[s,f] + ran + 1)] = True
 
-    evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int).reshape(1, -1)
+    evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int)
     evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
     evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
 
-    #distKiyoFlg = (learnFtrBinFlg * evalVecBinFlg).astype(np.bool)
-    
+    for l in range(inBootNum):    
+        learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
+        learnFtrMat = inLearnFtrMat[learnIdx]
+        learnLabel = inLearnLabel[learnIdx]
+
+        adaBoost = CAdaBoost()
+        param = inAdaBoostParam.copy()
+        param["Loop"] = adaLoop
+        param["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
+        adaBoost.SetParam(inAdaBoostParam = param)
+        adaBoost.Boost( trainScoreMat = learnFtrMat,
+                        labelList = learnLabel)
+
+        alpha = inAdaBoostParam["SaturateLevel"]
+        
+        posVoteOrg, negVoteOrg = adaBoost.GetVoteNum()
+        expPosOrg = (posVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+        expNegOrg = (negVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+        kiyoOrg = (expPosOrg - expNegOrg) / (expPosOrg + expNegOrg)
+        for idx in learnIdx:
+            posVote = posVoteOrg.copy()
+            negVote = negVoteOrg.copy()
+            if inLearnLabel[idx] == 1:
+                posVote[np.arange(posVote.shape[0]), learnFtrBin[idx]] -= (1.0 / np.sum(learnLabel == 1))
+                posVote /= np.sum(posVote,axis=1).reshape(-1, 1)
+            elif inLearnLabel[idx] == -1:
+                negVote[np.arange(negVote.shape[0]), learnFtrBin[idx]] -= (1.0 / np.sum(learnLabel == -1))
+                negVote /= np.sum(negVote,axis=1).reshape(-1, 1)
+            expPos = (posVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            expNeg = (negVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            kiyo = (expPos - expNeg) / (expPos + expNeg)
+            distMat[idx, distCnt[idx]] = np.sum((kiyo - kiyoOrg)[np.arange(kiyo.shape[0]), evalVecBin])
+        distCnt[learnIdx] += 1
+        print(l, np.sum(distCnt == 0), np.min(distCnt))
+    '''    
     for f in range(evalVecBin.size):
         evalVecBinFlg[0,f,max(0, evalVecBin[0,f] - ran):min(inAdaBoostParam["Bin"], evalVecBin[0,f] + ran + 1)] = True
 
@@ -52,8 +85,10 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
                                              scoreMat = evalVec.reshape(1, -1))
         boostOrder, relia = adaBoost.GetLearnedParam()
         table = adaBoost.GetLearnedTable()
+        
         base = np.arange(table.shape[0]).astype(np.int) * table.shape[1]
         for idx in learnIdx:
+            
             learnedKiyo = table.flatten()[base + learnFtrBin[idx][np.sort(boostOrder)]]
             assert(learnedKiyo.shape == (table.shape[0],))
             evalKiyo = table.flatten()[base + evalVecBin[0][np.sort(boostOrder)]]
@@ -61,7 +96,7 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
             distMat[idx, distCnt[idx]] += np.sum(np.abs(learnedKiyo - evalKiyo))
         distCnt[learnIdx] += 1
         print(l, np.sum(distCnt == 0), np.min(distCnt))
-        
+    ''' 
     medianVec = np.zeros(sampleNum).astype(np.float)
     meanVec = np.zeros(sampleNum).astype(np.float)
     for i in range(sampleNum):
@@ -149,12 +184,11 @@ def main():
                              evalVec = evalFtrMat[evalTgtIdx],
                              evalLabel = evalLabel[evalTgtIdx], 
                              inAdaBoostParam = adaBoostParam,
-                             inBootNum = 1000,
+                             inBootNum = 300,
                              inBootRatio = 0.1,
                              inUseFeatNum = learnFtrMat.shape[1],
                              adaLoop = 1,
-                             fastScanRate = 0.1)
-    
+                             fastScanRate = 1.0)
 
     plotNum = 100
     
