@@ -28,38 +28,42 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
     evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
 
-    for l in range(inBootNum):    
+    for l in range(inBootNum):
         learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
         learnFtrMat = inLearnFtrMat[learnIdx]
         learnLabel = inLearnLabel[learnIdx]
 
         adaBoost = CAdaBoost()
         param = inAdaBoostParam.copy()
-        param["Loop"] = adaLoop
-        param["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
+        if None != adaLoop:
+            param["Loop"] = adaLoop
+        if None != fastScanRate:
+            param["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
         adaBoost.SetParam(inAdaBoostParam = param)
         adaBoost.Boost( trainScoreMat = learnFtrMat,
                         labelList = learnLabel)
 
         alpha = inAdaBoostParam["SaturateLevel"]
-        
         posVoteOrg, negVoteOrg = adaBoost.GetVoteNum()
         expPosOrg = (posVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
         expNegOrg = (negVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
         kiyoOrg = (expPosOrg - expNegOrg) / (expPosOrg + expNegOrg)
+        voteWeight = adaBoost.GetVoteWeight()
+        n = 0
         for idx in learnIdx:
             posVote = posVoteOrg.copy()
             negVote = negVoteOrg.copy()
             if inLearnLabel[idx] == 1:
-                posVote[np.arange(posVote.shape[0]), learnFtrBin[idx]] -= (1.0 / np.sum(learnLabel == 1))
+                posVote[np.arange(posVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
                 posVote /= np.sum(posVote,axis=1).reshape(-1, 1)
             elif inLearnLabel[idx] == -1:
-                negVote[np.arange(negVote.shape[0]), learnFtrBin[idx]] -= (1.0 / np.sum(learnLabel == -1))
+                negVote[np.arange(negVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
                 negVote /= np.sum(negVote,axis=1).reshape(-1, 1)
             expPos = (posVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
             expNeg = (negVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
             kiyo = (expPos - expNeg) / (expPos + expNeg)
             distMat[idx, distCnt[idx]] = np.sum((kiyo - kiyoOrg)[np.arange(kiyo.shape[0]), evalVecBin])
+            n += 1
         distCnt[learnIdx] += 1
         print(l, np.sum(distCnt == 0), np.min(distCnt))
     '''    
@@ -187,8 +191,8 @@ def main():
                              inBootNum = 300,
                              inBootRatio = 0.1,
                              inUseFeatNum = learnFtrMat.shape[1],
-                             adaLoop = 1,
-                             fastScanRate = 1.0)
+                             adaLoop = None,
+                             fastScanRate = None)
 
     plotNum = 100
     
@@ -233,25 +237,31 @@ def main():
     fig = plt.figure()
 
     y = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
-    ax1 = fig.add_subplot(131)
-    ax1.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
-    ax1.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
-    ax1.grid(True)
-    ax1.set_title("Euclid Dist.")
+    ax = fig.add_subplot(151)
+    ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
+    ax.grid(True)
+    ax.set_title("Euclid Dist.")
 
     y = learnDistMedianVec[skippedIdx]
-    ax2 = fig.add_subplot(132)
-    ax2.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
-    ax2.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
-    ax2.grid(True)
-    ax2.set_title("BoostBoot Median.")
+    ax = fig.add_subplot(152)
+    ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax.grid(True)
+    ax.set_title("BoostBoot Pos Median.")
+    ax = fig.add_subplot(152)
+    ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
+    ax.grid(True)
+    ax.set_title("BoostBoot Neg Median.")
 
     y = learnDistMeanVec[skippedIdx]
-    ax3 = fig.add_subplot(133)
-    ax3.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
-    ax3.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
-    ax3.grid(True)
-    ax3.set_title("BoostBoot Mean.")
+    ax = fig.add_subplot(154)
+    ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax.grid(True)
+    ax.set_title("BoostBoot Pos Mean.")
+    ax = fig.add_subplot(155)
+    ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
+    ax.grid(True)
+    ax.set_title("BoostBoot Neg Mean.")
     
     plt.savefig("BoostBootTrial.png")
     plt.show()
