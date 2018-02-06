@@ -132,18 +132,17 @@ class CAdaBoost:
                 
                 if remainNum > 0:
                     
-                    if remainNum < featureNum:
-                        # 1週目の2特徴目以降はサンプル重みを更新
-                        if self.__saturateLoss:
-                            for s in range(sampleNum):
-                                c = self.__saturateLevel
-                                sampleWeight[s] = np.prod(1.0 - labelList[s] * boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]) ** (1.0 / c + 1.0)
-                                assert((sampleWeight > 0.0).all())
-                        else:
-                            for s in range(sampleNum):
-                                sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]))
-                        sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
-                        sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
+                    # 1週目はサンプル重みを更新
+                    if self.__saturateLoss:
+                        for s in range(sampleNum):
+                            c = self.__saturateLevel
+                            sampleWeight[s] = np.prod(1.0 - labelList[s] * boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]) ** (1.0 / c + 1.0)
+                            assert((sampleWeight > 0.0).all())
+                    else:
+                        for s in range(sampleNum):
+                            sampleWeight[s] = np.exp(-1 * labelList[s] * np.sum(boostRelia.flatten()[base + trainBinMat[s][boostOrder]][:featureNum - remainNum]))
+                    sampleWeight[posIdx] = sampleWeight[posIdx] / posSampleNum
+                    sampleWeight[negIdx] = sampleWeight[negIdx] / negSampleNum
 
                     # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
                     histoPos = np.zeros((remainNum, self.__bin))
