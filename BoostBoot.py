@@ -27,9 +27,14 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
     evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int)
     evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
     evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
-
-    for l in range(inBootNum):
-        learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
+    
+    l = 0
+    while 1:
+        if inBootRatio != 1.0:
+            learnIdx = np.random.choice(np.arange(sampleNum), int(sampleNum * inBootRatio), replace = False)
+        else:
+            learnIdx = np.arange(sampleNum)
+        
         learnFtrMat = inLearnFtrMat[learnIdx]
         learnLabel = inLearnLabel[learnIdx]
 
@@ -39,6 +44,9 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
             param["Loop"] = adaLoop
         if None != fastScanRate:
             param["FastScan"] = int(fastScanRate * inLearnFtrMat.shape[1])
+        elif 1.0 == fastScanRate:
+            param["FastScan"] = inLearnFtrMat.shape[1]
+            
         adaBoost.SetParam(inAdaBoostParam = param)
         adaBoost.Boost( trainScoreMat = learnFtrMat,
                         labelList = learnLabel)
@@ -47,27 +55,47 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
         posVoteOrg, negVoteOrg = adaBoost.GetVoteNum()
         expPosOrg = (posVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
         expNegOrg = (negVoteOrg ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
-        kiyoOrg = (expPosOrg - expNegOrg) / (expPosOrg + expNegOrg)
+
+        kiyoOrg = np.zeros(expPosOrg.shape).astype(np.float)
+        validIdxOrg = np.zeros(kiyoOrg.shape).astype(np.bool)
+        validIdxOrg[expPosOrg + expNegOrg > 0.0] = True
+        kiyoOrg[validIdxOrg] = (expPosOrg - expNegOrg)[validIdxOrg] / (expPosOrg + expNegOrg)[validIdxOrg]
         voteWeight = adaBoost.GetVoteWeight()
         n = 0
         for idx in learnIdx:
             posVote = posVoteOrg.copy()
             negVote = negVoteOrg.copy()
+            assert(not np.isnan(posVote).any())
+            assert(not np.isnan(negVote).any())
             if inLearnLabel[idx] == 1:
                 posVote[np.arange(posVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
-                posVote *= np.sum(learnLabel == 1) / (np.sum(learnLabel == 1) - 1)
-                #posVote /= np.sum(posVote,axis=1).reshape(-1, 1)
+                valid = (np.sum(posVote,axis=1)>0.0).astype(np.bool)
+                negVote[valid] /= np.sum(posVote,axis=1)[valid].reshape(-1, 1)
+                assert(not np.isnan(posVote).any())
             elif inLearnLabel[idx] == -1:
                 negVote[np.arange(negVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
-                negVote *= np.sum(learnLabel == -1) / (np.sum(learnLabel == -1) - 1)
-                #negVote /= np.sum(negVote,axis=1).reshape(-1, 1)
+                assert(not np.isnan(negVote).any())
+                valid = (np.sum(negVote,axis=1)>0.0).astype(np.bool)
+                negVote[valid] /= np.sum(negVote,axis=1)[valid].reshape(-1, 1)
+                assert(not np.isnan(negVote).any())
             expPos = (posVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            assert(not np.isnan(expPos).any())
             expNeg = (negVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            assert(not np.isnan(expNeg).any())
             kiyo = (expPos - expNeg) / (expPos + expNeg)
+            validIdx = np.zeros(kiyo.shape).astype(np.bool)
+            validIdx[expPos + expNeg > 0.0] = True
+            kiyo[validIdx] = (expPos - expNeg)[validIdx] / (expPos + expNeg)[validIdx]
+            assert(not np.isnan(kiyo).any())
             distMat[idx, distCnt[idx]] = np.sum((kiyo - kiyoOrg)[np.arange(kiyo.shape[0]), evalVecBin])
+            assert(not np.isnan(distMat).any())
             n += 1
         distCnt[learnIdx] += 1
+        l += 1
         print(l, np.sum(distCnt == 0), np.min(distCnt))
+        if (l >= inBootNum) and (np.min(distCnt) > 0):
+            break
+        
     '''    
     for f in range(evalVecBin.size):
         evalVecBinFlg[0,f,max(0, evalVecBin[0,f] - ran):min(inAdaBoostParam["Bin"], evalVecBin[0,f] + ran + 1)] = True
