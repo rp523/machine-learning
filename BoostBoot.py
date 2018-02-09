@@ -250,7 +250,7 @@ def main():
     resFile = "result.csv"
     if not os.path.exists(resFile):
         print("write")
-        plotModEvalScore = []
+        plotModEvalScore = np.empty(0)
         print("checking re-training")
         for i in tqdm(skippedIdx):
             _1, _2, modEvalScoreVec, _3 = smallSampleTry(hyperParam = adaBoostParam,
@@ -258,9 +258,12 @@ def main():
                                                      learnLabel = np.delete(learnLabel, i),
                                                      evalFtrMat = evalFtrMat,
                                                      evalLabel = evalLabel)
-            plotModEvalScore.append(modEvalScoreVec[evalTgtIdx])
+            if plotModEvalScore.size == 0:
+                plotModEvalScore = modEvalScoreVec.reshape(1, -1)
+            else:
+                plotModEvalScore = np.append(plotModEvalScore, modEvalScoreVec.reshape(1, -1), axis = 0)
         
-        np.savetxt(resFile, np.array(plotModEvalScore))
+        np.savetxt(resFile, plotModEvalScore)
         '''
         writer = pd.ExcelWriter(resFile, engine = 'xlsxwriter')
         df = pd.DataFrame()
@@ -274,10 +277,10 @@ def main():
 
     else:
         print("read")
-        plotModEvalScore = np.loadtxt(resFile).flatten()
+        plotModEvalScore = np.loadtxt(resFile)
         
     print("tgt cls:", evalLabel[evalTgtIdx])
-    x = plotModEvalScore - refTgtEvalScore
+    x = plotModEvalScore.T[evalTgtIdx] - refTgtEvalScore
     
     fig = plt.figure()
 
