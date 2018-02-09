@@ -191,13 +191,13 @@ class CAdaBoost:
                     h = ( expPos - expNeg) / (expPos + expNeg)
                 
                 # スムージング
-                if 0:
-                    smoother = np.zeros((h.size, h.size)).astype(np.float)
-                    ran = 1
-                    for i in range(h.size):
-                        smoother[i][max(i-ran,0):min(i+ran+1,h.size)] = 1.0#(np.append(np.arange(ran+1), np.arange(ran)[::-1]) + 1)[max(ran-i,0):ran+1+min(h.size - (i+1),ran)]
-                        smoother[i] = smoother[i] / np.sum(smoother[i])
-                    h = np.dot(smoother, h)
+                if 1:
+                    smoother = np.zeros((h.shape[1], h.shape[1])).astype(np.float)
+                    ran = 2
+                    for i in range(h.shape[1]):
+                        smoother[i][max(i-ran,0):min(i+ran+1,h.shape[1])] = 1.0
+                    smoother /= np.sum(smoother, axis = 1).reshape(-1, 1)
+                    h = np.dot(h, smoother.T)
                 
                 if remainNum > 0:
                     boostRelia[w:w + self.__fastScan] = h

@@ -67,24 +67,39 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
             negVote = negVoteOrg.copy()
             assert(not np.isnan(posVote).any())
             assert(not np.isnan(negVote).any())
+            
+            hikuIdx = np.zeros(posVote.shape).astype(np.int)
+            hikuIdx[np.arange(hikuIdx.shape[0]), learnFtrBin[idx]] = 1
+            assert((np.sum(hikuIdx,axis=1)>0).all())
+            hikuIdxBase = hikuIdx.copy()
+            for r in range(2):
+                hikuIdx[:,(r+1):] += hikuIdxBase[:,:-(r+1)]
+                hikuIdx[:,:-(r+1)] += hikuIdxBase[:,(r+1):]
+            assert((np.sum(hikuIdx,axis=1)>0).all())
+            hikuValid = (hikuIdx > 0)
+            assert((np.sum(hikuValid,axis=1)>0).all())
+            hikuIdx = hikuIdx / np.sum(hikuIdx, axis=1).reshape(-1, 1)
+            
             if inLearnLabel[idx] == 1:
-                posVote[np.arange(posVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
+                posVote[hikuValid] = posVote[hikuValid] - (hikuIdx * (voteWeight[n].reshape(-1, 1)))[hikuValid]
                 valid = (np.sum(posVote,axis=1)>0.0).astype(np.bool)
                 negVote[valid] /= np.sum(posVote,axis=1)[valid].reshape(-1, 1)
-                assert(not np.isnan(posVote).any())
             elif inLearnLabel[idx] == -1:
-                negVote[np.arange(negVote.shape[0]), learnFtrBin[idx]] -= voteWeight[n]
+                negVote[hikuValid] = negVote[hikuValid] - (hikuIdx * (voteWeight[n].reshape(-1, 1)))[hikuValid]
                 assert(not np.isnan(negVote).any())
                 valid = (np.sum(negVote,axis=1)>0.0).astype(np.bool)
                 negVote[valid] /= np.sum(negVote,axis=1)[valid].reshape(-1, 1)
-                assert(not np.isnan(negVote).any())
-            expPos = (posVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            assert(not np.isnan(posVote).any())
+            assert(not np.isnan(negVote).any())
+            expPos = np.zeros(posVote.shape).astype(np.float)
+            expPos[posVote > 0.0] = (posVote[posVote > 0.0] ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
             assert(not np.isnan(expPos).any())
-            expNeg = (negVote ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
+            expNeg = np.zeros(negVote.shape).astype(np.float)
+            expNeg[negVote > 0.0] = (negVote[negVote > 0.0] ** alpha) + inAdaBoostParam["Regularizer"] + 1e-10
             assert(not np.isnan(expNeg).any())
-            kiyo = (expPos - expNeg) / (expPos + expNeg)
-            validIdx = np.zeros(kiyo.shape).astype(np.bool)
+            validIdx = np.zeros(expPos.shape).astype(np.bool)
             validIdx[expPos + expNeg > 0.0] = True
+            kiyo = np.zeros(validIdx.shape).astype(np.float)
             kiyo[validIdx] = (expPos - expNeg)[validIdx] / (expPos + expNeg)[validIdx]
             assert(not np.isnan(kiyo).any())
             distMat[idx, distCnt[idx]] = np.sum((kiyo - kiyoOrg)[np.arange(kiyo.shape[0]), evalVecBin])
@@ -267,29 +282,34 @@ def main():
     fig = plt.figure()
 
     y = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
-    ax = fig.add_subplot(131)
+    ax = fig.add_subplot(231)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
+    ax.grid(True)
+    ax.set_title("Pos Euclid Dist.")
+    ax = fig.add_subplot(234)
     ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax.grid(True)
-    ax.set_title("Euclid Dist.")
+    ax.set_title("Neg Euclid Dist.")
 
     y = learnDistMedianVec[skippedIdx]
-    ax = fig.add_subplot(132)
+    ax = fig.add_subplot(232)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
-    ax = fig.add_subplot(132)
+    ax.set_title("Pos BoostBoot Median.")
+    ax = fig.add_subplot(235)
     ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax.grid(True)
-    ax.set_title("BoostBoot Median.")
+    ax.set_title("Neg BoostBoot Median.")
 
     y = learnDistMeanVec[skippedIdx]
-    ax = fig.add_subplot(133)
+    ax = fig.add_subplot(233)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
-    ax = fig.add_subplot(133)
+    ax.set_title("Pos BoostBoot Mean.")
+    ax = fig.add_subplot(236)
     ax.plot(x[plotNegIdx], y[plotNegIdx], ".", color="blue")
     ax.grid(True)
-    ax.set_title("BoostBoot Mean.")
+    ax.set_title("Neg BoostBoot Mean.")
     
     plt.savefig("BoostBootTrial.png")
     plt.show()
