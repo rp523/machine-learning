@@ -282,7 +282,7 @@ def main():
     print("tgt cls:", evalLabel[evalTgtIdx])
     x = plotModEvalScore.T[evalTgtIdx] - refTgtEvalScore
     
-    fig = plt.figure()
+    fig = plt.figure(figsize=(18,9))
 
     y = np.sqrt(np.sum((learnFtrMat[skippedIdx] - evalFtrMat[evalTgtIdx]) ** 2, axis = 1))
     ax = fig.add_subplot(231)
