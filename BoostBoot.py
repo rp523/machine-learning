@@ -68,24 +68,15 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
             assert(not np.isnan(posVote).any())
             assert(not np.isnan(negVote).any())
             
-            hikuIdx = np.zeros(posVote.shape).astype(np.int)
-            hikuIdx[np.arange(hikuIdx.shape[0]), learnFtrBin[idx]] = 1
-            assert((np.sum(hikuIdx,axis=1)>0).all())
-            hikuIdxBase = hikuIdx.copy()
-            for r in range(2):
-                hikuIdx[:,(r+1):] += hikuIdxBase[:,:-(r+1)]
-                hikuIdx[:,:-(r+1)] += hikuIdxBase[:,(r+1):]
-            assert((np.sum(hikuIdx,axis=1)>0).all())
-            hikuValid = (hikuIdx > 0)
-            assert((np.sum(hikuValid,axis=1)>0).all())
-            hikuIdx = hikuIdx / np.sum(hikuIdx, axis=1).reshape(-1, 1)
+            hikuValid = np.zeros(posVote.shape).astype(np.bool)
+            hikuValid[np.arange(hikuValid.shape[0]), learnFtrBin[idx]] = True
             
             if inLearnLabel[idx] == 1:
-                posVote[hikuValid] = posVote[hikuValid] - (hikuIdx * (voteWeight[n].reshape(-1, 1)))[hikuValid]
+                posVote[hikuValid] = posVote[hikuValid] - voteWeight[n]
                 valid = (np.sum(posVote,axis=1)>0.0).astype(np.bool)
                 negVote[valid] /= np.sum(posVote,axis=1)[valid].reshape(-1, 1)
             elif inLearnLabel[idx] == -1:
-                negVote[hikuValid] = negVote[hikuValid] - (hikuIdx * (voteWeight[n].reshape(-1, 1)))[hikuValid]
+                negVote[hikuValid] = negVote[hikuValid] - voteWeight[n]
                 assert(not np.isnan(negVote).any())
                 valid = (np.sum(negVote,axis=1)>0.0).astype(np.bool)
                 negVote[valid] /= np.sum(negVote,axis=1)[valid].reshape(-1, 1)
@@ -101,6 +92,18 @@ def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, 
             validIdx[expPos + expNeg > 0.0] = True
             kiyo = np.zeros(validIdx.shape).astype(np.float)
             kiyo[validIdx] = (expPos - expNeg)[validIdx] / (expPos + expNeg)[validIdx]
+
+            #smoothing
+            if 1:
+                ada_bin = posVote.shape[1]
+                smoother = np.zeros((ada_bin, ada_bin)).astype(np.float)
+                ran = 2
+                for i in range(ada_bin):
+                    smoother[i][max(i-ran,0):min(i+ran+1,ada_bin)] = 1.0
+                smoother /= np.sum(smoother, axis = 1).reshape(-1, 1)
+                for i in range(kiyo.shape[0]):
+                    kiyo[i] = np.dot(kiyo[i], smoother.T)
+            
             assert(not np.isnan(kiyo).any())
             distMat[idx, distCnt[idx]] = np.sum((kiyo - kiyoOrg)[np.arange(kiyo.shape[0]), evalVecBin])
             assert(not np.isnan(distMat).any())
@@ -226,7 +229,6 @@ def main():
                                                                      evalFtrMat = evalFtrMat,
                                                                      evalLabel = evalLabel)
     evalTgtIdx = np.argsort(refEvalLossVec)[-1]
-    refTgtEvalScore = refEvalScoreVec[evalTgtIdx]
     
     learnDistMedianVec, learnDistMeanVec = BoostBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
@@ -280,7 +282,9 @@ def main():
         plotModEvalScore = np.loadtxt(resFile)
         
     print("tgt cls:", evalLabel[evalTgtIdx])
-    x = plotModEvalScore.T[evalTgtIdx] - refTgtEvalScore
+    assert(refEvalScoreVec[evalTgtIdx].size == 1)
+    assert(plotModEvalScore.T[evalTgtIdx].shape == (plotNum,))
+    x = plotModEvalScore.T[evalTgtIdx] - refEvalScoreVec[evalTgtIdx]
     
     fig = plt.figure(figsize=(18,9))
 
