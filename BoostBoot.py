@@ -27,7 +27,7 @@ def OrgBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, in
     evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
     evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
     
-    out = np.empty(sampleNum).astype(np.float)
+    out = np.empty(skippedIdx.size).astype(np.float)
     
     for i in tqdm(range(skippedIdx.size)):
         renIdx  = skippedIdx[i]
@@ -42,7 +42,7 @@ def OrgBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, in
                         labelList = inLearnLabel[useIdx])
         evalScore = adaBoost.Evaluate(testScoreMat = evalVec.reshape(1, -1),
                                   label = evalLabel)
-        out[renIdx] = float(evalScore)
+        out[i] = float(evalScore)
     return out
 
 
@@ -282,7 +282,7 @@ def main():
     plotNum = 1000
     skippedIdx = np.linspace(0, learnImg.shape[0] - 1, plotNum).astype(np.int)
     skippedIdx = np.unique(skippedIdx)
-
+    
     modScore = OrgBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
                              evalVec = evalFtrMat[evalTgtIdx],

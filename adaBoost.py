@@ -164,8 +164,8 @@ class CAdaBoost:
                         histoNeg = np.zeros((1, self.__bin)).astype(np.float)
                         remainGoodID = self.__givenOrder[w]
                         for b in range(self.__bin):
-                            histoPos[0,b] = np.dot((trainBinMat[posIdx].T[remainGoodID] == b), sampleWeight[posIdx])
-                            histoNeg[0,b] = np.dot((trainBinMat[negIdx].T[remainGoodID] == b), sampleWeight[negIdx])
+                            histoPos[0,b] = np.sum(sampleWeight[posIdx][trainBinMat[posIdx].T[remainGoodID] == b])
+                            histoNeg[0,b] = np.sum(sampleWeight[negIdx][trainBinMat[negIdx].T[remainGoodID] == b])
                         selectHistPos = histoPos
                         selectHistNeg = histoNeg
                     
