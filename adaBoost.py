@@ -31,6 +31,7 @@ class AdaBoostParam(CParam):
         setDicts["saveDetail"] = False
         setDicts["BoostLoop"] = 1
         setDicts["FastScan"] = 1
+        setDicts["GivenOrder"] = np.empty(0).astype(np.int)
         super().__init__(setDicts) 
 
 class CAdaBoost:
@@ -60,6 +61,7 @@ class CAdaBoost:
         self.__verbose = adaBoostParam["verbose"]
         self.__saveDetail = adaBoostParam["saveDetail"]
         self.__fastScan = adaBoostParam["FastScan"]
+        self.__givenOrder = adaBoostParam["GivenOrder"]
         self.__featureLen = None
         self.__weightRec = None
         
@@ -146,16 +148,26 @@ class CAdaBoost:
                     sampleWeight[posIdx] /= np.sum(sampleWeight[posIdx])
                     sampleWeight[negIdx] /= np.sum(sampleWeight[negIdx])
 
-                    # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
-                    histoPos = np.zeros((remainNum, self.__bin))
-                    histoNeg = np.zeros((remainNum, self.__bin))
-                    for b in range(self.__bin):
-                        histoPos[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
-                        histoNeg[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
-                    # 残っている弱識別器から最優秀のものを選択
-                    remainGoodID = np.argsort(np.sum(np.sqrt(histoPos * histoNeg), axis=1))[:self.__fastScan]
-                    selectHistPos = histoPos[remainGoodID]
-                    selectHistNeg = histoNeg[remainGoodID]
+                    if self.__givenOrder.size == 0:
+                        # 各識別器の性能を計算するための重み付きヒストグラム（識別器 x AdabootBin）を計算
+                        histoPos = np.zeros((remainNum, self.__bin))
+                        histoNeg = np.zeros((remainNum, self.__bin))
+                        for b in range(self.__bin):
+                            histoPos[np.arange(remainNum),b] = np.dot((trainBinMat[posIdx].T[remains] == b), sampleWeight[posIdx])
+                            histoNeg[np.arange(remainNum),b] = np.dot((trainBinMat[negIdx].T[remains] == b), sampleWeight[negIdx])
+                        # 残っている弱識別器から最優秀のものを選択
+                        remainGoodID = np.argsort(np.sum(np.sqrt(histoPos * histoNeg), axis=1))[:self.__fastScan]
+                        selectHistPos = histoPos[remainGoodID]
+                        selectHistNeg = histoNeg[remainGoodID]
+                    else:
+                        histoPos = np.zeros((1, self.__bin)).astype(np.float)
+                        histoNeg = np.zeros((1, self.__bin)).astype(np.float)
+                        remainGoodID = self.__givenOrder[w]
+                        for b in range(self.__bin):
+                            histoPos[0,b] = np.dot((trainBinMat[posIdx].T[remainGoodID] == b), sampleWeight[posIdx])
+                            histoNeg[0,b] = np.dot((trainBinMat[negIdx].T[remainGoodID] == b), sampleWeight[negIdx])
+                        selectHistPos = histoPos
+                        selectHistNeg = histoNeg
                     
                 else:
                     # 2週目以降の補正
@@ -201,7 +213,11 @@ class CAdaBoost:
                 
                 if remainNum > 0:
                     boostRelia[w:w + self.__fastScan] = h
-                    selectID_abs = np.arange(featureNum)[remains][remainGoodID]
+                    if self.__givenOrder.size == 0:
+                        selectID_abs = np.arange(featureNum)[remains][remainGoodID]
+                    else:
+                        selectID_abs = remainGoodID
+                    
                     boostOrder[w:w + self.__fastScan] = selectID_abs
                     remains[selectID_abs] = False
 

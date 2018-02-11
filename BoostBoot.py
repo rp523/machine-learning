@@ -8,6 +8,43 @@ from matplotlib import pyplot as plt
 import pandas as pd
 from common.mathtool import *
 
+def OrgBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, inBootNum, inBootRatio, inUseFeatNum, boostOrder, adaLoop, fastScanRate, skippedIdx):
+    sampleNum = inLearnFtrMat.shape[0]
+    featureNum = inLearnFtrMat.shape[1]
+    
+    distMat = np.zeros((sampleNum, inBootNum)).astype(np.float)
+    distCnt = np.zeros(sampleNum).astype(np.int)
+    
+    ran = 0
+    learnFtrBin = (inLearnFtrMat * inAdaBoostParam["Bin"]).astype(np.int)
+    learnFtrBin[learnFtrBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
+    learnFtrBinFlg = np.zeros((learnFtrBin.shape[0], learnFtrBin.shape[1], inAdaBoostParam["Bin"])).astype(np.bool)
+    for s in (range(learnFtrBin.shape[0])):
+        for f in range(learnFtrBin.shape[1]):
+            learnFtrBinFlg[s,f,max(0, learnFtrBin[s,f] - ran):min(inAdaBoostParam["Bin"], learnFtrBin[s,f] + ran + 1)] = True
+
+    evalVecBin = (evalVec * inAdaBoostParam["Bin"]).astype(np.int)
+    evalVecBin[evalVecBin == inAdaBoostParam["Bin"]] = inAdaBoostParam["Bin"] - 1
+    evalVecBinFlg = np.zeros((1, evalVecBin.size, inAdaBoostParam["Bin"])).astype(np.bool)
+    
+    out = np.empty(sampleNum).astype(np.float)
+    
+    for i in tqdm(range(skippedIdx.size)):
+        renIdx  = skippedIdx[i]
+        adaBoost = CAdaBoost()
+        param = inAdaBoostParam.copy()
+        if boostOrder.size != 0:
+            param["GivenOrder"] = boostOrder
+        adaBoost.SetParam(inAdaBoostParam = param)
+        useIdx = np.ones(sampleNum).astype(np.bool)
+        useIdx[renIdx] = False
+        adaBoost.Boost( trainScoreMat = inLearnFtrMat[useIdx],
+                        labelList = inLearnLabel[useIdx])
+        evalScore = adaBoost.Evaluate(testScoreMat = evalVec.reshape(1, -1),
+                                  label = evalLabel)
+        out[renIdx] = float(evalScore)
+    return out
+
 
 def BoostBoot(inLearnFtrMat, inLearnLabel, evalVec, evalLabel, inAdaBoostParam, inBootNum, inBootRatio, inUseFeatNum, adaLoop, fastScanRate):
     sampleNum = inLearnFtrMat.shape[0]
@@ -184,7 +221,7 @@ def smallSampleTry(hyperParam,
     
     boostOrder, adaTable = adaBoost.GetLearnedParam()
 
-    return adaTable[np.argsort(boostOrder)], learnScore, evalScore, evalLossVec
+    return adaTable[np.argsort(boostOrder)], learnScore, evalScore, evalLossVec, boostOrder
 
 def main():
     lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
@@ -223,13 +260,14 @@ def main():
     adaBoostParam["Saturate"] = True
     adaBoostParam["Regularizer"] = 1e-2
 
-    refAdaTable, reflearnScoreVec, refEvalScoreVec, refEvalLossVec = smallSampleTry(hyperParam = adaBoostParam,
+    refAdaTable, reflearnScoreVec, refEvalScoreVec, refEvalLossVec, boostOrder = smallSampleTry(hyperParam = adaBoostParam,
                                                                      learnFtrMat = learnFtrMat,
                                                                      learnLabel = learnLabel,
                                                                      evalFtrMat = evalFtrMat,
                                                                      evalLabel = evalLabel)
     evalTgtIdx = np.argsort(refEvalLossVec)[-1]
     
+    '''
     learnDistMedianVec, learnDistMeanVec = BoostBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
                              evalVec = evalFtrMat[evalTgtIdx],
@@ -240,11 +278,26 @@ def main():
                              inUseFeatNum = learnFtrMat.shape[1],
                              adaLoop = None,
                              fastScanRate = None)
-
+    '''
     plotNum = 1000
-    
     skippedIdx = np.linspace(0, learnImg.shape[0] - 1, plotNum).astype(np.int)
     skippedIdx = np.unique(skippedIdx)
+
+    modScore = OrgBoot(inLearnFtrMat = learnFtrMat,
+                             inLearnLabel = learnLabel,
+                             evalVec = evalFtrMat[evalTgtIdx],
+                             evalLabel = evalLabel[evalTgtIdx], 
+                             inAdaBoostParam = adaBoostParam,
+                             inBootNum = 1,
+                             inBootRatio = 1.0,
+                             inUseFeatNum = learnFtrMat.shape[1],
+                             boostOrder = boostOrder,
+                             adaLoop = None,
+                             fastScanRate = None,
+                             skippedIdx = skippedIdx)
+
+    
+    
     
     plotPosIdx = (learnLabel[skippedIdx] ==  1)
     plotNegIdx = (learnLabel[skippedIdx] == -1)
@@ -255,7 +308,7 @@ def main():
         plotModEvalScore = np.empty(0)
         print("checking re-training")
         for i in tqdm(skippedIdx):
-            _1, _2, modEvalScoreVec, _3 = smallSampleTry(hyperParam = adaBoostParam,
+            _1, _2, modEvalScoreVec, _3, _4 = smallSampleTry(hyperParam = adaBoostParam,
                                                      learnFtrMat = np.delete(learnFtrMat, i, axis = 0),
                                                      learnLabel = np.delete(learnLabel, i),
                                                      evalFtrMat = evalFtrMat,
@@ -298,7 +351,8 @@ def main():
     ax.grid(True)
     ax.set_title("Neg Euclid Dist.")
 
-    y = learnDistMedianVec[skippedIdx]
+    #y = learnDistMedianVec[skippedIdx]
+    y = modScore
     ax = fig.add_subplot(232)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
@@ -308,7 +362,8 @@ def main():
     ax.grid(True)
     ax.set_title("Neg BoostBoot Median.")
 
-    y = learnDistMeanVec[skippedIdx]
+    #y = learnDistMeanVec[skippedIdx]
+    y = modScore
     ax = fig.add_subplot(233)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
