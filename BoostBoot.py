@@ -267,7 +267,6 @@ def main():
                                                                      evalLabel = evalLabel)
     evalTgtIdx = np.argsort(refEvalLossVec)[-1]
     
-    '''
     learnDistMedianVec, learnDistMeanVec = BoostBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
                              evalVec = evalFtrMat[evalTgtIdx],
@@ -278,11 +277,12 @@ def main():
                              inUseFeatNum = learnFtrMat.shape[1],
                              adaLoop = None,
                              fastScanRate = None)
-    '''
-    plotNum = 1000
-    skippedIdx = np.linspace(0, learnImg.shape[0] - 1, plotNum).astype(np.int)
+
+    skippedIdx = np.linspace(0, learnImg.shape[0] - 1, 1000).astype(np.int)
     skippedIdx = np.unique(skippedIdx)
+    plotNum = skippedIdx.size
     
+    '''
     modScore = OrgBoot(inLearnFtrMat = learnFtrMat,
                              inLearnLabel = learnLabel,
                              evalVec = evalFtrMat[evalTgtIdx],
@@ -295,7 +295,7 @@ def main():
                              adaLoop = None,
                              fastScanRate = None,
                              skippedIdx = skippedIdx)
-
+    '''
     
     
     
@@ -351,8 +351,8 @@ def main():
     ax.grid(True)
     ax.set_title("Neg Euclid Dist.")
 
-    #y = learnDistMedianVec[skippedIdx]
-    y = modScore
+    y = learnDistMedianVec[skippedIdx]
+    #y = modScore
     ax = fig.add_subplot(232)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
@@ -362,8 +362,8 @@ def main():
     ax.grid(True)
     ax.set_title("Neg BoostBoot Median.")
 
-    #y = learnDistMeanVec[skippedIdx]
-    y = modScore
+    y = learnDistMeanVec[skippedIdx]
+    #y = modScore
     ax = fig.add_subplot(233)
     ax.plot(x[plotPosIdx], y[plotPosIdx], ".", color="red")
     ax.grid(True)
