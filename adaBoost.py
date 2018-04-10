@@ -333,18 +333,7 @@ class CAdaBoost:
                       boostRelia = None,
                       boostOrder = None,
                       selectedNum = None):
-        if None == label:
-            label = self.__learnLabel
-        if None == bin:
-            bin = self.__bin
-        if None == scoreMat:
-            scoreMat = self.__learnScoreMat
-        if None == boostRelia:
-            boostRelia = self.__relia
-        if None == boostOrder:
-            boostOrder = self.__reliaID
-        if None == selectedNum:
-            selectedNum = boostRelia.shape[0]
+        
         
         # スコアをBIN値に換算
         binMat = (scoreMat * bin).astype(np.int)
@@ -514,8 +503,8 @@ def main(boostLoop):
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 2
-    hogParam["Cell"]["Y"] = 4
+    hogParam["Cell"]["X"] = 4
+    hogParam["Cell"]["Y"] = 8
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -527,7 +516,7 @@ def main(boostLoop):
     adaBoostParam["Saturate"] = True
     adaBoostParam["SaturateLoss"] = False
     adaBoostParam["verbose"] = False
-    adaBoostParam["saveDetail"] = False
+    adaBoostParam["saveDetail"] = True
     adaBoostParam["Loop"] = 999999
     adaBoostParam["BoostLoop"] = boostLoop
     adaBoostParam["FastScan"] = 1   # Boostingのイテレーション回で同時に選択する特徴量数
