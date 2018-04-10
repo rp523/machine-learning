@@ -1,5 +1,5 @@
 #coding: utf-8
-import os, shutil, sys
+import os, shutil, sys, subprocess
 import numpy as np
 from feature.hog import CHogParam,CHog
 from feature.chnFtrs import *
@@ -492,19 +492,27 @@ def main(boostLoop):
         os.remove(xlsxFile)
     for matFile in  GetFileList(".", includingText = ".mat"):
         os.remove(matFile)
+    
+    currDir = subprocess.check_output("pwd")
+    currDir = str(currDir)[2:-3]
+    inriaPath = os.path.join(currDir, "dataset", "INRIAPerson")
+    learnPosPath = os.path.join(inriaPath, "LearnPos")
+    learnNegPath = os.path.join(inriaPath, "LearnNeg")
+    evalPosPath = os.path.join(inriaPath, "EvalPos")
+    evalNegPath = os.path.join(inriaPath, "EvalNeg")
+    lp = dirPath2NumpyArray(learnPosPath)
+    ln = dirPath2NumpyArray(learnNegPath)
+    ep = dirPath2NumpyArray(evalPosPath)
+    en = dirPath2NumpyArray(evalNegPath)
 
-    lp = dirPath2NumpyArray("dataset/INRIAPerson/LearnPos")
-    ln = dirPath2NumpyArray("dataset/INRIAPerson/LearnNeg")
-    ep = dirPath2NumpyArray("dataset/INRIAPerson/EvalPos" )
-    en = dirPath2NumpyArray("dataset/INRIAPerson/EvalNeg" )
     learn = RGB2Gray(np.append(lp, ln, axis = 0), "green")
     eval  = RGB2Gray(np.append(ep, en, axis = 0), "green")
     learnLabel = np.array([1] * len(lp) + [-1] * len(ln))
     evalLabel  = np.array([1] * len(ep) + [-1] * len(en))
     hogParam = CHogParam()
     hogParam["Bin"] = 8
-    hogParam["Cell"]["X"] = 4
-    hogParam["Cell"]["Y"] = 8
+    hogParam["Cell"]["X"] = 2
+    hogParam["Cell"]["Y"] = 4
     hogParam["Block"]["X"] = 1
     hogParam["Block"]["Y"] = 1
     detectorList = [CHog(hogParam)]
@@ -550,7 +558,6 @@ def main(boostLoop):
     return auc
 
 if "__main__" == __name__:
-    
     print(main(int(1)))
     exit()
     
